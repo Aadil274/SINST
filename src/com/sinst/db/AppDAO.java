@@ -517,6 +517,69 @@ public class AppDAO {
         return list;
     }
 
+    public static boolean saveRole(Role role) throws SQLException {
+        return saveRole(role, null);
+    }
+
+    public static List<Integer> getRoleSkillIds(int roleId) throws SQLException {
+        List<Integer> ids = new ArrayList<>();
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement("SELECT skill_id FROM role_skills WHERE role_id = ?")) {
+            ps.setInt(1, roleId);
+            try (ResultSet rs = ps.executeQuery()) { while (rs.next()) ids.add(rs.getInt(1)); }
+        }
+        return ids;
+    }
+
+    public static boolean saveRole(Role role, List<Integer> requiredSkillIds) throws SQLException {
+        String sql = role.getRoleId() == 0
+                ? "INSERT INTO roles (role_title, description, experience_level) VALUES (?, ?, ?)"
+                : "UPDATE roles SET role_title = ?, description = ?, experience_level = ? WHERE role_id = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            conn.setAutoCommit(false);
+            try {
+            ps.setString(1, role.getRoleTitle().trim());
+            ps.setString(2, role.getDescription());
+            ps.setString(3, role.getExperienceLevel());
+            if (role.getRoleId() != 0) ps.setInt(4, role.getRoleId());
+            int changed = ps.executeUpdate();
+            if (changed > 0 && role.getRoleId() == 0) {
+                try (ResultSet keys = ps.getGeneratedKeys()) {
+                    if (keys.next()) role.setRoleId(keys.getInt(1));
+                }
+            }
+            if (changed > 0 && requiredSkillIds != null) {
+                try (PreparedStatement clear = conn.prepareStatement("DELETE FROM role_skills WHERE role_id = ?")) {
+                    clear.setInt(1, role.getRoleId());
+                    clear.executeUpdate();
+                }
+                try (PreparedStatement add = conn.prepareStatement("INSERT INTO role_skills (role_id, skill_id, required_level, is_mandatory) VALUES (?, ?, 'Intermediate', TRUE)")) {
+                    for (Integer skillId : requiredSkillIds) {
+                        add.setInt(1, role.getRoleId());
+                        add.setInt(2, skillId);
+                        add.addBatch();
+                    }
+                    if (!requiredSkillIds.isEmpty()) add.executeBatch();
+                }
+            }
+            conn.commit();
+            return changed > 0;
+            } catch (SQLException ex) {
+                conn.rollback();
+                throw ex;
+            }
+        }
+    }
+
+    public static boolean deleteRole(int roleId) throws SQLException {
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement("DELETE FROM roles WHERE role_id = ?")) {
+            ps.setInt(1, roleId);
+            return ps.executeUpdate() > 0;
+        }
+    }
+
     public static List<Company> getAllCompanies() throws SQLException {
         List<Company> list = new ArrayList<>();
         String sql = "SELECT * FROM companies ORDER BY company_name";
@@ -535,6 +598,30 @@ public class AppDAO {
             }
         }
         return list;
+    }
+
+    public static boolean saveCompany(Company company) throws SQLException {
+        String sql = company.getCompanyId() == 0
+                ? "INSERT INTO companies (company_name, industry, location, website, contact_email) VALUES (?, ?, ?, ?, ?)"
+                : "UPDATE companies SET company_name = ?, industry = ?, location = ?, website = ?, contact_email = ? WHERE company_id = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, company.getCompanyName().trim());
+            ps.setString(2, company.getIndustry());
+            ps.setString(3, company.getLocation());
+            ps.setString(4, company.getWebsite());
+            ps.setString(5, company.getContactEmail());
+            if (company.getCompanyId() != 0) ps.setInt(6, company.getCompanyId());
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    public static boolean deleteCompany(int companyId) throws SQLException {
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement("DELETE FROM companies WHERE company_id = ?")) {
+            ps.setInt(1, companyId);
+            return ps.executeUpdate() > 0;
+        }
     }
 
     // =========================================================================

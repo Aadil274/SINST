@@ -17,6 +17,7 @@ import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
 
 public class MainFrame extends JFrame {
 
@@ -48,6 +49,12 @@ public class MainFrame extends JFrame {
     private DefaultTableModel certsModel;
     private JTable projTable;
     private DefaultTableModel projectsModel;
+
+    // Company and role catalog management
+    private JTable companiesTable;
+    private DefaultTableModel companiesModel;
+    private JTable rolesTable;
+    private DefaultTableModel rolesModel;
 
     // Skill Gap widgets
     private JComboBox<Role> gapRoleCombo;
@@ -107,6 +114,7 @@ public class MainFrame extends JFrame {
         mainTabbedPane.addTab("Applications & Interviews", createApplicationsTab());
         mainTabbedPane.addTab("Skills & Profile", createSkillsProfileTab());
         mainTabbedPane.addTab("Skill-Gap Analyzer", createSkillGapTab());
+        mainTabbedPane.addTab("Companies & Roles", createCatalogsTab());
 
         root.add(mainTabbedPane, BorderLayout.CENTER);
         add(root);
@@ -494,6 +502,152 @@ public class MainFrame extends JFrame {
         return panel;
     }
 
+    private JPanel createCatalogsTab() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(new EmptyBorder(12, 12, 12, 12));
+        JLabel help = new JLabel("Manage the company and internship role catalogs used when recording applications.");
+        help.setBorder(new EmptyBorder(0, 4, 4, 4));
+        panel.add(help, BorderLayout.NORTH);
+
+        JTabbedPane catalogs = new JTabbedPane();
+        companiesModel = new DefaultTableModel(new String[]{"ID", "Company", "Industry", "Location", "Website", "Contact Email"}, 0) {
+            @Override public boolean isCellEditable(int r, int c) { return false; }
+        };
+        companiesTable = new JTable(companiesModel);
+        companiesTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        catalogs.addTab("Companies", createCatalogPanel(companiesTable, true));
+
+        rolesModel = new DefaultTableModel(new String[]{"ID", "Role", "Experience", "Description"}, 0) {
+            @Override public boolean isCellEditable(int r, int c) { return false; }
+        };
+        rolesTable = new JTable(rolesModel);
+        rolesTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        catalogs.addTab("Roles", createCatalogPanel(rolesTable, false));
+
+        panel.add(catalogs, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private JPanel createCatalogPanel(JTable table, boolean companyCatalog) {
+        JPanel panel = new JPanel(new BorderLayout(6, 6));
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton add = createStyledButton("Add", new Color(39, 174, 96), Color.WHITE);
+        JButton edit = createStyledButton("Edit Selected", new Color(24, 100, 180), Color.WHITE);
+        JButton remove = new JButton("Remove Selected");
+        add.addActionListener(e -> { if (companyCatalog) showCompanyEditor(null); else showRoleEditor(null); });
+        edit.addActionListener(e -> editCatalogSelection(companyCatalog));
+        remove.addActionListener(e -> deleteCatalogSelection(companyCatalog));
+        buttons.add(add);
+        buttons.add(edit);
+        buttons.add(remove);
+        panel.add(buttons, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private void editCatalogSelection(boolean companyCatalog) {
+        JTable table = companyCatalog ? companiesTable : rolesTable;
+        int row = table.getSelectedRow();
+        if (row < 0) {
+            JOptionPane.showMessageDialog(this, "Select a record first.", "No Selection", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        int id = ((Number) table.getValueAt(row, 0)).intValue();
+        try {
+            if (companyCatalog) {
+                for (Company c : AppDAO.getAllCompanies()) if (c.getCompanyId() == id) { showCompanyEditor(c); return; }
+            } else {
+                for (Role role : AppDAO.getAllRoles()) if (role.getRoleId() == id) { showRoleEditor(role); return; }
+            }
+        } catch (SQLException ex) {
+            showCatalogError(ex);
+        }
+    }
+
+    private void showCompanyEditor(Company current) {
+        JTextField name = new JTextField(current == null ? "" : current.getCompanyName());
+        JTextField industry = new JTextField(current == null ? "" : nullToEmpty(current.getIndustry()));
+        JTextField location = new JTextField(current == null ? "" : nullToEmpty(current.getLocation()));
+        JTextField website = new JTextField(current == null ? "" : nullToEmpty(current.getWebsite()));
+        JTextField email = new JTextField(current == null ? "" : nullToEmpty(current.getContactEmail()));
+        JPanel form = new JPanel(new GridLayout(5, 2, 8, 8));
+        form.add(new JLabel("Company name *")); form.add(name);
+        form.add(new JLabel("Industry")); form.add(industry);
+        form.add(new JLabel("Location")); form.add(location);
+        form.add(new JLabel("Website")); form.add(website);
+        form.add(new JLabel("Contact email")); form.add(email);
+        if (JOptionPane.showConfirmDialog(this, form, current == null ? "Add Company" : "Edit Company", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+        if (name.getText().trim().isEmpty()) { JOptionPane.showMessageDialog(this, "Company name is required."); return; }
+        Company value = new Company(current == null ? 0 : current.getCompanyId(), name.getText().trim(), industry.getText().trim(), location.getText().trim(), website.getText().trim(), email.getText().trim());
+        try { AppDAO.saveCompany(value); refreshCatalogs(); }
+        catch (SQLException ex) { showCatalogError(ex); }
+    }
+
+    private void showRoleEditor(Role current) {
+        JTextField title = new JTextField(current == null ? "" : current.getRoleTitle());
+        JComboBox<String> level = new JComboBox<>(new String[]{"Intern", "Entry Level", "Intermediate", "Experienced"});
+        if (current != null) level.setSelectedItem(current.getExperienceLevel());
+        JTextArea description = new JTextArea(current == null ? "" : nullToEmpty(current.getDescription()), 5, 28);
+        description.setLineWrap(true);
+        description.setWrapStyleWord(true);
+        List<Skill> skills;
+        List<Integer> selectedIds = new ArrayList<>();
+        try {
+            skills = AppDAO.getAllSkills();
+            if (current != null) selectedIds = AppDAO.getRoleSkillIds(current.getRoleId());
+        } catch (SQLException ex) { showCatalogError(ex); return; }
+        JList<Skill> skillList = new JList<>(skills.toArray(new Skill[0]));
+        skillList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        skillList.setVisibleRowCount(7);
+        List<Integer> currentSkillIds = selectedIds;
+        for (int i = 0; i < skills.size(); i++) if (currentSkillIds.contains(skills.get(i).getSkillId())) skillList.addSelectionInterval(i, i);
+        JPanel form = new JPanel(new GridLayout(0, 2, 8, 8));
+        form.add(new JLabel("Role title *")); form.add(title);
+        form.add(new JLabel("Experience level")); form.add(level);
+        form.add(new JLabel("Description")); form.add(new JScrollPane(description));
+        form.add(new JLabel("Required skills (Ctrl/Shift-click)")); form.add(new JScrollPane(skillList));
+        if (JOptionPane.showConfirmDialog(this, form, current == null ? "Add Role" : "Edit Role", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+        if (title.getText().trim().isEmpty()) { JOptionPane.showMessageDialog(this, "Role title is required."); return; }
+        Role value = new Role(current == null ? 0 : current.getRoleId(), title.getText().trim(), description.getText().trim(), (String) level.getSelectedItem());
+        List<Integer> requiredSkillIds = new ArrayList<>();
+        for (Skill skill : skillList.getSelectedValuesList()) requiredSkillIds.add(skill.getSkillId());
+        try { AppDAO.saveRole(value, requiredSkillIds); refreshCatalogs(); }
+        catch (SQLException ex) { showCatalogError(ex); }
+    }
+
+    private void deleteCatalogSelection(boolean companyCatalog) {
+        JTable table = companyCatalog ? companiesTable : rolesTable;
+        int row = table.getSelectedRow();
+        if (row < 0) { JOptionPane.showMessageDialog(this, "Select a record first.", "No Selection", JOptionPane.INFORMATION_MESSAGE); return; }
+        int id = ((Number) table.getValueAt(row, 0)).intValue();
+        String label = String.valueOf(table.getValueAt(row, 1));
+        if (JOptionPane.showConfirmDialog(this, "Remove '" + label + "' from the catalog? Records used by applications cannot be removed.", "Confirm Removal", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        try {
+            if (companyCatalog) AppDAO.deleteCompany(id); else AppDAO.deleteRole(id);
+            refreshCatalogs();
+        } catch (SQLException ex) { showCatalogError(ex); }
+    }
+
+    private String nullToEmpty(String value) { return value == null ? "" : value; }
+
+    private void showCatalogError(SQLException ex) {
+        String message = ex.getMessage() == null ? "Database error." : ex.getMessage();
+        String lower = message.toLowerCase();
+        if (lower.contains("duplicate entry")) message = "That company name or role title already exists.";
+        else if (lower.contains("foreign key")) message = "This record is already used by an application and cannot be removed.";
+        JOptionPane.showMessageDialog(this, message, "Catalog Error", JOptionPane.ERROR_MESSAGE);
+    }
+
+    private void refreshCatalogs() {
+        try {
+            companiesModel.setRowCount(0);
+            for (Company c : AppDAO.getAllCompanies()) companiesModel.addRow(new Object[]{c.getCompanyId(), c.getCompanyName(), c.getIndustry(), c.getLocation(), c.getWebsite(), c.getContactEmail()});
+            rolesModel.setRowCount(0);
+            for (Role r : AppDAO.getAllRoles()) rolesModel.addRow(new Object[]{r.getRoleId(), r.getRoleTitle(), r.getExperienceLevel(), r.getDescription()});
+            refreshRolesAndCompanies();
+        } catch (SQLException ex) { showCatalogError(ex); }
+    }
+
     // =========================================================================
     // DATA REFRESH LOGIC
     // =========================================================================
@@ -503,7 +657,7 @@ public class MainFrame extends JFrame {
         refreshApplications();
         refreshSkills();
         refreshCertsAndProjects();
-        refreshRolesAndCompanies();
+        refreshCatalogs();
     }
 
     private void refreshDashboard() {
