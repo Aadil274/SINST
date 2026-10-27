@@ -85,4 +85,16 @@ public class CompanyServiceImpl implements CompanyService {
             throw new DatabaseException("Database error deleting company: " + e.getMessage(), e);
         }
     }
+
+    @Override
+    public boolean ensureCompanyExists(String companyName) throws DatabaseException {
+        if (companyName == null || companyName.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            return companyDAO.ensureCompanyExists(companyName.trim());
+        } catch (SQLException e) {
+            throw new DatabaseException("Error ensuring company exists: " + e.getMessage(), e);
+        }
+    }
 }

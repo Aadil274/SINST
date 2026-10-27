@@ -16,6 +16,7 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.sql.Date;
@@ -39,6 +40,7 @@ public class MainFrame extends JFrame {
     private final RoleService roleService;
     private final DashboardService dashboardService;
     private final RecommendationService recommendationService;
+    private final ResumeService resumeService;
 
     private JTabbedPane mainTabbedPane;
     private JLabel welcomeLabel;
@@ -168,6 +170,7 @@ public class MainFrame extends JFrame {
         this.roleService = roleService;
         this.dashboardService = dashboardService;
         this.recommendationService = recommendationService != null ? recommendationService : new RecommendationServiceImpl();
+        this.resumeService = new ResumeServiceImpl();
 
         setTitle("Smart Internship & Skill Tracker (SINST) - " + student.getFullName());
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -206,6 +209,12 @@ public class MainFrame extends JFrame {
         fontSizeBtn.setPreferredSize(new Dimension(115, 32));
         topActions.add(fontSizeBtn);
 
+        JButton makeResumeBtn = createStyledButton("Make Resume", new Color(13, 148, 136), Color.WHITE);
+        makeResumeBtn.setPreferredSize(new Dimension(115, 32));
+        makeResumeBtn.setToolTipText("Generate an ATS-friendly, professional resume from your verified profile");
+        makeResumeBtn.addActionListener(e -> showResumeDialog());
+        topActions.add(makeResumeBtn);
+
         JButton editProfileBtn = createStyledButton("Edit Profile", new Color(41, 128, 185), Color.WHITE);
         editProfileBtn.setPreferredSize(new Dimension(105, 32));
         editProfileBtn.addActionListener(e -> showEditProfileDialog());
@@ -221,7 +230,7 @@ public class MainFrame extends JFrame {
         });
         topActions.add(logoutBtn);
 
-        topBanner.add(welcomeLabel, BorderLayout.WEST);
+        topBanner.add(welcomeLabel, BorderLayout.CENTER);
         topBanner.add(topActions, BorderLayout.EAST);
         root.add(topBanner, BorderLayout.NORTH);
 
@@ -301,10 +310,14 @@ public class MainFrame extends JFrame {
 
     private void updateWelcomeLabelText() {
         if (welcomeLabel != null) {
-            welcomeLabel.setText("STUDENT: " + currentStudent.getFullName().toUpperCase() + 
-                                 "  |  Roll No: " + currentStudent.getRollNumber() + 
-                                 "  |  Dept: " + currentStudent.getDepartment() + 
-                                 " (Year " + currentStudent.getYearOfStudy() + ")");
+            String dept = currentStudent.getDepartment() != null ? currentStudent.getDepartment() : "CSE";
+            String email = currentStudent.getEmail() != null ? currentStudent.getEmail() : "";
+            welcomeLabel.setText("<html><b style='color: #ffffff; font-size: 13px;'>" + escapeHtml(currentStudent.getFullName()) + "</b>" +
+                                 " &nbsp;|&nbsp; <span style='color: #93c5fd;'>" + escapeHtml(currentStudent.getRollNumber()) + "</span>" +
+                                 "<br/><span style='font-size: 11px; color: #cbd5e1; font-weight: normal;'>" +
+                                 escapeHtml(dept) + " &bull; Year " + currentStudent.getYearOfStudy() +
+                                 (!email.isEmpty() ? " &bull; " + escapeHtml(email) : "") +
+                                 "</span></html>");
         }
         setTitle("Smart Internship & Skill Tracker (SINST) - " + currentStudent.getFullName());
     }
@@ -375,6 +388,10 @@ public class MainFrame extends JFrame {
             refreshRecommendationsAsync();
         });
         quickBar.add(recBtn);
+
+        JButton resumeQuickBtn = createStyledButton("Make Resume", new Color(30, 64, 175), Color.WHITE);
+        resumeQuickBtn.addActionListener(e -> showResumeDialog());
+        quickBar.add(resumeQuickBtn);
 
         JButton refreshBtn = new JButton("Refresh Dashboard");
         refreshBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
@@ -448,19 +465,19 @@ public class MainFrame extends JFrame {
         panel.setBorder(new EmptyBorder(12, 12, 12, 12));
         panel.setBackground(Color.WHITE);
 
-        // Top Controls: Filter & Actions
-        JPanel topControls = new JPanel(new BorderLayout());
+        // Top Controls: Filter & Actions (2-tier layout prevents button clipping / horizontal overlap)
+        JPanel topControls = new JPanel(new BorderLayout(0, 6));
         topControls.setOpaque(false);
 
-        JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         filterPanel.setOpaque(false);
         filterPanel.add(new JLabel("Filter by Status:"));
         appFilterCombo = new JComboBox<>(new String[]{"All", "Applied", "Shortlisted", "Interview", "Selected", "Rejected"});
         appFilterCombo.addActionListener(e -> filterApplicationsTable());
         filterPanel.add(appFilterCombo);
-        topControls.add(filterPanel, BorderLayout.WEST);
+        topControls.add(filterPanel, BorderLayout.NORTH);
 
-        JPanel actionBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        JPanel actionBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         actionBtns.setOpaque(false);
 
         JButton addAppBtn = createStyledButton("+ New Application", new Color(24, 100, 180), Color.WHITE);
@@ -487,7 +504,7 @@ public class MainFrame extends JFrame {
         actionBtns.add(scheduleIntBtn);
         actionBtns.add(viewIntsBtn);
         actionBtns.add(deleteAppBtn);
-        topControls.add(actionBtns, BorderLayout.EAST);
+        topControls.add(actionBtns, BorderLayout.CENTER);
 
         panel.add(topControls, BorderLayout.NORTH);
 
@@ -532,9 +549,11 @@ public class MainFrame extends JFrame {
         skillsBox.setBorder(BorderFactory.createTitledBorder(BorderFactory.createEtchedBorder(), "My Skills & Competencies", TitledBorder.LEFT, TitledBorder.TOP, new Font("Segoe UI", Font.BOLD, 13)));
         skillsBox.setBackground(Color.WHITE);
 
-        // Add Skill Bar
-        JPanel addSkillBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        // Add Skill Bar - 2 structured rows so selectors and buttons never overlap or clip
+        JPanel addSkillBar = new JPanel(new GridLayout(2, 1, 4, 4));
         addSkillBar.setOpaque(false);
+        addSkillBar.setBorder(new EmptyBorder(4, 4, 4, 4));
+
         masterSkillsCombo = new JComboBox<>();
         proficiencyCombo = new JComboBox<>(new String[]{"Beginner", "Intermediate", "Advanced", "Expert"});
         proficiencyCombo.setSelectedItem("Intermediate");
@@ -545,12 +564,20 @@ public class MainFrame extends JFrame {
         JButton deleteSkillBtn = new JButton("Remove");
         deleteSkillBtn.addActionListener(e -> removeStudentSkill());
 
-        addSkillBar.add(new JLabel("Skill:"));
-        addSkillBar.add(masterSkillsCombo);
-        addSkillBar.add(new JLabel("Level:"));
-        addSkillBar.add(proficiencyCombo);
-        addSkillBar.add(addSkillBtn);
-        addSkillBar.add(deleteSkillBtn);
+        JPanel skillRow1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        skillRow1.setOpaque(false);
+        skillRow1.add(new JLabel("Skill:"));
+        skillRow1.add(masterSkillsCombo);
+        skillRow1.add(new JLabel("Level:"));
+        skillRow1.add(proficiencyCombo);
+
+        JPanel skillRow2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        skillRow2.setOpaque(false);
+        skillRow2.add(addSkillBtn);
+        skillRow2.add(deleteSkillBtn);
+
+        addSkillBar.add(skillRow1);
+        addSkillBar.add(skillRow2);
         skillsBox.add(addSkillBar, BorderLayout.NORTH);
 
         studentSkillsModel = new DefaultTableModel(new String[]{"ID", "Skill Name", "Category", "Proficiency Level"}, 0) {
@@ -561,8 +588,13 @@ public class MainFrame extends JFrame {
         studentSkillsTable.getColumnModel().getColumn(0).setPreferredWidth(45);
         skillsBox.add(new JScrollPane(studentSkillsTable), BorderLayout.CENTER);
 
-        JPanel skillBottomBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 2));
+        JPanel skillBottomBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
         skillBottomBar.setOpaque(false);
+
+        JButton makeResumeFromSkillsBtn = createStyledButton("Make Resume", new Color(13, 148, 136), Color.WHITE);
+        makeResumeFromSkillsBtn.addActionListener(e -> showResumeDialog());
+        skillBottomBar.add(makeResumeFromSkillsBtn);
+
         JButton viewSkillEvidenceBtn = new JButton("View Skill Evidence");
         viewSkillEvidenceBtn.addActionListener(e -> showSkillEvidenceDialog());
         skillBottomBar.add(viewSkillEvidenceBtn);
@@ -583,7 +615,10 @@ public class MainFrame extends JFrame {
         certsTable.setRowHeight(26);
         certsPanel.add(new JScrollPane(certsTable), BorderLayout.CENTER);
 
-        JPanel certBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JPanel certBtns = new JPanel(new GridLayout(2, 1, 4, 4));
+        certBtns.setOpaque(false);
+        certBtns.setBorder(new EmptyBorder(4, 4, 4, 4));
+
         JButton addCertBtn = createStyledButton("+ Add Certification", new Color(24, 100, 180), Color.WHITE);
         addCertBtn.addActionListener(e -> showAddCertDialog());
         JButton viewSkillsBtn = new JButton("View Skills & Evidence");
@@ -592,30 +627,76 @@ public class MainFrame extends JFrame {
         editCertBtn.addActionListener(e -> showEditCertDialog());
         JButton delCertBtn = new JButton("Remove");
         delCertBtn.addActionListener(e -> deleteSelectedCert());
-        certBtns.add(addCertBtn);
-        certBtns.add(viewSkillsBtn);
-        certBtns.add(editCertBtn);
-        certBtns.add(delCertBtn);
+
+        JPanel certRow1 = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
+        certRow1.setOpaque(false);
+        certRow1.add(addCertBtn);
+        certRow1.add(viewSkillsBtn);
+
+        JPanel certRow2 = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
+        certRow2.setOpaque(false);
+        certRow2.add(editCertBtn);
+        certRow2.add(delCertBtn);
+
+        certBtns.add(certRow1);
+        certBtns.add(certRow2);
         certsPanel.add(certBtns, BorderLayout.SOUTH);
         bioTabs.addTab("Certifications", certsPanel);
 
         // Sub-Tab: Projects
         JPanel projPanel = new JPanel(new BorderLayout(5, 5));
         projPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
-        projectsModel = new DefaultTableModel(new String[]{"ID", "Project Title", "Tech Stack"}, 0) {
+        projectsModel = new DefaultTableModel(new String[]{"ID", "Project Title", "Tech Stack", "Project Link"}, 0) {
             @Override public boolean isCellEditable(int r, int c) { return false; }
         };
         projTable = new JTable(projectsModel);
         projTable.setRowHeight(26);
+        projTable.getColumnModel().getColumn(3).setCellRenderer(new HyperlinkRenderer());
+        projTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int row = projTable.rowAtPoint(e.getPoint());
+                int col = projTable.columnAtPoint(e.getPoint());
+                if (row >= 0 && col == 3) {
+                    Object val = projectsModel.getValueAt(row, 3);
+                    if (val != null) {
+                        openWebUrl(MainFrame.this, val.toString());
+                    }
+                }
+            }
+        });
+        projTable.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                int col = projTable.columnAtPoint(e.getPoint());
+                projTable.setCursor(col == 3 ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+            }
+        });
         projPanel.add(new JScrollPane(projTable), BorderLayout.CENTER);
 
-        JPanel projBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JPanel projBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
         JButton addProjBtn = createStyledButton("+ Add Project", new Color(24, 100, 180), Color.WHITE);
         addProjBtn.addActionListener(e -> showAddProjectDialog());
         JButton editProjBtn = new JButton("Edit Selected");
         editProjBtn.addActionListener(e -> showEditProjectDialog());
+        JButton openProjLinkBtn = new JButton("Open Link");
+        openProjLinkBtn.addActionListener(e -> {
+            int row = projTable.getSelectedRow();
+            if (row < 0) {
+                JOptionPane.showMessageDialog(MainFrame.this, "Please select an academic project first.", "No Selection", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            Object val = projectsModel.getValueAt(row, 3);
+            openWebUrl(MainFrame.this, val != null ? val.toString() : "");
+        });
         JButton delProjBtn = new JButton("Remove");
         delProjBtn.addActionListener(e -> deleteSelectedProject());
+        projBtns.add(addProjBtn);
+        projBtns.add(editProjBtn);
+        projBtns.add(openProjLinkBtn);
+        projBtns.add(delProjBtn);
+        projPanel.add(projBtns, BorderLayout.SOUTH);
+        bioTabs.addTab("Academic Projects", projPanel);
         projBtns.add(addProjBtn);
         projBtns.add(editProjBtn);
         projBtns.add(delProjBtn);
@@ -848,6 +929,29 @@ public class MainFrame extends JFrame {
                     }
                 }
                 return lbl;
+            }
+        });
+
+        // Clickable Official Careers Portal Link Renderer & Hand Cursor Hover
+        recommendationsTable.getColumnModel().getColumn(7).setCellRenderer(new HyperlinkRenderer());
+        recommendationsTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int row = recommendationsTable.rowAtPoint(e.getPoint());
+                int col = recommendationsTable.columnAtPoint(e.getPoint());
+                if (row >= 0 && col == 7) {
+                    Object val = recommendationsModel.getValueAt(row, 7);
+                    if (val != null) {
+                        openWebUrl(MainFrame.this, val.toString());
+                    }
+                }
+            }
+        });
+        recommendationsTable.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                int col = recommendationsTable.columnAtPoint(e.getPoint());
+                recommendationsTable.setCursor(col == 7 ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
             }
         });
 
@@ -1096,24 +1200,7 @@ public class MainFrame extends JFrame {
         RoleRecommendation rec = getSelectedRecommendation();
         if (rec == null) return;
         String url = rec.getEffectiveCareersUrl();
-        if (url == null || url.trim().isEmpty()) {
-            JOptionPane.showMessageDialog(this, "No careers URL recorded for " + rec.getCompanyName() + ".", "Notice", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-
-        try {
-            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                Desktop.getDesktop().browse(new URI(url.trim()));
-            } else {
-                JTextField urlField = new JTextField(url.trim());
-                urlField.setEditable(false);
-                JOptionPane.showMessageDialog(this, urlField, "Official Careers Portal URL", JOptionPane.INFORMATION_MESSAGE);
-            }
-        } catch (Exception ex) {
-            JTextField urlField = new JTextField(url.trim());
-            urlField.setEditable(false);
-            JOptionPane.showMessageDialog(this, urlField, "Official Careers Portal URL", JOptionPane.INFORMATION_MESSAGE);
-        }
+        openWebUrl(this, url);
     }
 
     private void jumpToSkillGapForSelected() {
@@ -1162,6 +1249,27 @@ public class MainFrame extends JFrame {
         };
         companiesTable = new JTable(companiesModel);
         companiesTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        companiesTable.getColumnModel().getColumn(4).setCellRenderer(new HyperlinkRenderer());
+        companiesTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int row = companiesTable.rowAtPoint(e.getPoint());
+                int col = companiesTable.columnAtPoint(e.getPoint());
+                if (row >= 0 && col == 4) {
+                    Object val = companiesModel.getValueAt(row, 4);
+                    if (val != null) {
+                        openWebUrl(MainFrame.this, val.toString());
+                    }
+                }
+            }
+        });
+        companiesTable.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                int col = companiesTable.columnAtPoint(e.getPoint());
+                companiesTable.setCursor(col == 4 ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+            }
+        });
         catalogs.addTab("Companies", createCatalogPanel(companiesTable, true));
 
         rolesModel = new DefaultTableModel(new String[]{"ID", "Role", "Experience", "Description"}, 0) {
@@ -1181,12 +1289,25 @@ public class MainFrame extends JFrame {
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton add = createStyledButton("Add", new Color(39, 174, 96), Color.WHITE);
         JButton edit = createStyledButton("Edit Selected", new Color(24, 100, 180), Color.WHITE);
+        JButton openWebBtn = new JButton("Open Website");
+        openWebBtn.addActionListener(e -> {
+            int row = companiesTable.getSelectedRow();
+            if (row < 0) {
+                JOptionPane.showMessageDialog(MainFrame.this, "Please select a company first.", "No Selection", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            Object val = companiesModel.getValueAt(row, 4);
+            openWebUrl(MainFrame.this, val != null ? val.toString() : "");
+        });
         JButton remove = new JButton("Remove Selected");
         add.addActionListener(e -> { if (companyCatalog) showCompanyEditor(null); else showRoleEditor(null); });
         edit.addActionListener(e -> editCatalogSelection(companyCatalog));
         remove.addActionListener(e -> deleteCatalogSelection(companyCatalog));
         buttons.add(add);
         buttons.add(edit);
+        if (companyCatalog) {
+            buttons.add(openWebBtn);
+        }
         buttons.add(remove);
         panel.add(buttons, BorderLayout.SOUTH);
         return panel;
@@ -1610,7 +1731,7 @@ public class MainFrame extends JFrame {
         projectsModel.setRowCount(0);
         if (projs != null) {
             for (Project p : projs) {
-                projectsModel.addRow(new Object[]{p.getProjectId(), p.getTitle(), p.getTechnologiesUsed()});
+                projectsModel.addRow(new Object[]{p.getProjectId(), p.getTitle(), p.getTechnologiesUsed(), p.getProjectUrl() != null ? p.getProjectUrl() : ""});
             }
         }
     }
@@ -2149,7 +2270,7 @@ public class MainFrame extends JFrame {
             return;
         }
 
-        JPanel panel = new JPanel(new GridLayout(5, 2, 8, 8));
+        JPanel panel = new JPanel(new GridLayout(0, 2, 8, 8));
         JTextField compField = new JTextField(target.getCompanyName());
         compField.setEditable(false);
         JTextField roleField = new JTextField(target.getRoleTitle());
@@ -2279,7 +2400,7 @@ public class MainFrame extends JFrame {
         String company = (String) appsModel.getValueAt(row, 1);
         String role = (String) appsModel.getValueAt(row, 2);
 
-        JPanel panel = new JPanel(new GridLayout(6, 2, 8, 8));
+        JPanel panel = new JPanel(new GridLayout(0, 2, 8, 8));
         JTextField dateField = new JTextField(ValidationUtil.futureDateTimeString(3));
         JComboBox<String> roundCombo = new JComboBox<>(new String[]{"Technical Round 1", "Technical Round 2", "Online Assessment", "Managerial Round", "HR Round"});
         JComboBox<String> modeCombo = new JComboBox<>(new String[]{"Online", "In-Person"});
@@ -2732,6 +2853,7 @@ public class MainFrame extends JFrame {
                     refreshCertsAndProjectsAsync();
                     refreshSkillsAsync();
                     refreshDashboardAsync();
+                    refreshCatalogsAsync();
                     JOptionPane.showMessageDialog(
                         this,
                         "Certification and " + reviewedList.size() + " verified skill(s) recorded with supporting evidence!",
@@ -2767,6 +2889,7 @@ public class MainFrame extends JFrame {
                     refreshCertsAndProjectsAsync();
                     refreshSkillsAsync();
                     refreshDashboardAsync();
+                    refreshCatalogsAsync();
                     JOptionPane.showMessageDialog(this, "Certification saved successfully (without skill mappings).", "Success", JOptionPane.INFORMATION_MESSAGE);
                 },
                 ex -> {
@@ -3036,6 +3159,7 @@ public class MainFrame extends JFrame {
                 r -> {
                     setBusy(false, "Certification updated");
                     refreshCertsAndProjectsAsync();
+                    refreshCatalogsAsync();
                     JOptionPane.showMessageDialog(this, "Certification updated successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
                 },
                 ex -> {
@@ -3333,5 +3457,71 @@ public class MainFrame extends JFrame {
             }
             return c;
         }
+    }
+
+    public static class HyperlinkRenderer extends DefaultTableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            JLabel lbl = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            if (value != null && !value.toString().trim().isEmpty()) {
+                String val = value.toString().trim();
+                lbl.setText("<html><u><font color='#2563eb'>" + escapeHtml(val) + "</font></u></html>");
+                lbl.setToolTipText("Click to open " + val + " in browser");
+            } else {
+                lbl.setText("-");
+                lbl.setToolTipText(null);
+            }
+            return lbl;
+        }
+    }
+
+    private void showResumeDialog() {
+        setBusy(true, "Compiling professional resume...");
+        AppExecutor.runWorker(
+            "generate-resume",
+            () -> resumeService.buildResumeData(currentStudent.getStudentId()),
+            this,
+            data -> {
+                setBusy(false, "Ready");
+                new ResumeDialog(this, data, resumeService).setVisible(true);
+            },
+            ex -> {
+                setBusy(false, "Ready");
+                JOptionPane.showMessageDialog(this, "Error compiling resume: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        );
+    }
+
+    public static void openWebUrl(Component parent, String rawUrl) {
+        if (rawUrl == null || rawUrl.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(parent, "No web link provided for this entry.", "Information", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        String url = rawUrl.trim();
+        if (!url.toLowerCase().startsWith("http://") && !url.toLowerCase().startsWith("https://")) {
+            url = "https://" + url;
+        }
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(new URI(url));
+            } else {
+                JTextField urlField = new JTextField(url);
+                urlField.setEditable(false);
+                JOptionPane.showMessageDialog(parent, urlField, "Website Link", JOptionPane.INFORMATION_MESSAGE);
+            }
+        } catch (Exception ex) {
+            JTextField urlField = new JTextField(url);
+            urlField.setEditable(false);
+            JOptionPane.showMessageDialog(parent, urlField, "Website Link", JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    public static String escapeHtml(String text) {
+        if (text == null) return "";
+        return text.replace("&", "&amp;")
+                   .replace("<", "&lt;")
+                   .replace(">", "&gt;")
+                   .replace("\"", "&quot;")
+                   .replace("'", "&#39;");
     }
 }

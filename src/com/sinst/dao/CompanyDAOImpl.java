@@ -81,6 +81,39 @@ public class CompanyDAOImpl implements CompanyDAO {
         }
     }
 
+    @Override
+    public boolean ensureCompanyExists(String companyName) throws SQLException {
+        try (Connection conn = DBConnection.getConnection()) {
+            return ensureCompanyExists(companyName, conn);
+        }
+    }
+
+    @Override
+    public boolean ensureCompanyExists(String companyName, Connection conn) throws SQLException {
+        if (companyName == null || companyName.trim().isEmpty()) {
+            return false;
+        }
+        String trimmed = companyName.trim();
+        String checkSql = "SELECT company_id FROM companies WHERE LOWER(TRIM(company_name)) = LOWER(?)";
+        try (PreparedStatement checkPs = conn.prepareStatement(checkSql)) {
+            checkPs.setString(1, trimmed);
+            try (ResultSet rs = checkPs.executeQuery()) {
+                if (rs.next()) {
+                    return false;
+                }
+            }
+        }
+
+        String insertSql = "INSERT INTO companies (company_name, industry, location, website) VALUES (?, ?, ?, ?)";
+        try (PreparedStatement insertPs = conn.prepareStatement(insertSql)) {
+            insertPs.setString(1, trimmed);
+            insertPs.setString(2, "Professional Certification & Training");
+            insertPs.setString(3, "Global / Online");
+            insertPs.setString(4, "");
+            return insertPs.executeUpdate() > 0;
+        }
+    }
+
     private Company extractCompany(ResultSet rs) throws SQLException {
         String careersUrl = null;
         try {

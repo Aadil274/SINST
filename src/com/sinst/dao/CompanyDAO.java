@@ -9,4 +9,6 @@ public interface CompanyDAO {
     Company getById(int companyId) throws SQLException;
     boolean save(Company company) throws SQLException;
     boolean delete(int companyId) throws SQLException;
+    boolean ensureCompanyExists(String companyName) throws SQLException;
+    boolean ensureCompanyExists(String companyName, java.sql.Connection conn) throws SQLException;
 }

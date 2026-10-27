@@ -13,4 +13,5 @@ public interface CompanyService {
     Company getCompanyById(int companyId) throws DatabaseException, EntityNotFoundException;
     void saveCompany(Company company) throws ValidationException, DatabaseException, DuplicateEntityException;
     void deleteCompany(int companyId) throws DatabaseException;
+    boolean ensureCompanyExists(String companyName) throws DatabaseException;
 }

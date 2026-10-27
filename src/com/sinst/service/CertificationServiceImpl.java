@@ -22,13 +22,15 @@ public class CertificationServiceImpl implements CertificationService {
     private final CertificationSkillDAO certificationSkillDAO;
     private final SkillEvidenceDAO skillEvidenceDAO;
     private final SkillDAO skillDAO;
+    private final CompanyDAO companyDAO;
 
     public CertificationServiceImpl() {
         this(
             CertificationDAOImpl.getInstance(),
             CertificationSkillDAOImpl.getInstance(),
             SkillEvidenceDAOImpl.getInstance(),
-            SkillDAOImpl.getInstance()
+            SkillDAOImpl.getInstance(),
+            CompanyDAOImpl.getInstance()
         );
     }
 
@@ -37,10 +39,26 @@ public class CertificationServiceImpl implements CertificationService {
             CertificationSkillDAO certificationSkillDAO,
             SkillEvidenceDAO skillEvidenceDAO,
             SkillDAO skillDAO) {
+        this(
+            certificationDAO,
+            certificationSkillDAO,
+            skillEvidenceDAO,
+            skillDAO,
+            CompanyDAOImpl.getInstance()
+        );
+    }
+
+    public CertificationServiceImpl(
+            CertificationDAO certificationDAO,
+            CertificationSkillDAO certificationSkillDAO,
+            SkillEvidenceDAO skillEvidenceDAO,
+            SkillDAO skillDAO,
+            CompanyDAO companyDAO) {
         this.certificationDAO = certificationDAO;
         this.certificationSkillDAO = certificationSkillDAO;
         this.skillEvidenceDAO = skillEvidenceDAO;
         this.skillDAO = skillDAO;
+        this.companyDAO = companyDAO != null ? companyDAO : CompanyDAOImpl.getInstance();
     }
 
     @Override
@@ -63,6 +81,13 @@ public class CertificationServiceImpl implements CertificationService {
             boolean success = certificationDAO.add(cert);
             if (!success) {
                 throw new DatabaseException("Failed to add certification record.");
+            }
+
+            // Automatically register issuing organization as a company if not already registered
+            if (cert.getIssuingOrganization() != null && !cert.getIssuingOrganization().trim().isEmpty()) {
+                try {
+                    companyDAO.ensureCompanyExists(cert.getIssuingOrganization().trim());
+                } catch (Exception ignored) {}
             }
         } catch (SQLException e) {
             String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
@@ -98,6 +123,13 @@ public class CertificationServiceImpl implements CertificationService {
             boolean updated = certificationDAO.update(cert, studentId > 0 ? studentId : existing.getStudentId());
             if (!updated) {
                 throw new DatabaseException("Certification record could not be updated.");
+            }
+
+            // Ensure updated issuing organization is registered in company catalog
+            if (cert.getIssuingOrganization() != null && !cert.getIssuingOrganization().trim().isEmpty()) {
+                try {
+                    companyDAO.ensureCompanyExists(cert.getIssuingOrganization().trim());
+                } catch (Exception ignored) {}
             }
         } catch (SQLException e) {
             throw new DatabaseException("Database error updating certification: " + ValidationUtil.sanitizeErrorMessage(e), e);
@@ -258,6 +290,13 @@ public class CertificationServiceImpl implements CertificationService {
             boolean certSaved = certificationDAO.add(cert, conn);
             if (!certSaved || cert.getCertificationId() <= 0) {
                 throw new DatabaseException("Failed to record certification details in database.");
+            }
+
+            // Automatically register issuing organization into company catalog within transaction
+            if (cert.getIssuingOrganization() != null && !cert.getIssuingOrganization().trim().isEmpty()) {
+                try {
+                    companyDAO.ensureCompanyExists(cert.getIssuingOrganization().trim(), conn);
+                } catch (Exception ignored) {}
             }
 
             int certId = cert.getCertificationId();
