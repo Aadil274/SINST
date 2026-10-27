@@ -8,6 +8,7 @@ import com.sinst.model.Student;
 import com.sinst.service.StudentService;
 import com.sinst.service.StudentServiceImpl;
 import com.sinst.util.AppExecutor;
+import com.sinst.util.FontManager;
 import com.sinst.util.UserSession;
 import com.sinst.util.ValidationUtil;
 
@@ -48,6 +49,7 @@ public class LoginFrame extends JFrame {
         setResizable(false);
 
         initUI();
+        FontManager.applyScale(this);
 
         addWindowListener(new WindowAdapter() {
             @Override
@@ -90,22 +92,29 @@ public class LoginFrame extends JFrame {
 
         mainPanel.add(tabbedPane, BorderLayout.CENTER);
 
-        // Footer with DB Settings Button
+        // Footer with DB Settings & Font Scaling Buttons
         JPanel footerPanel = new JPanel(new BorderLayout());
         footerPanel.setBackground(new Color(245, 247, 250));
         footerPanel.setBorder(new EmptyBorder(8, 5, 5, 5));
+
+        JPanel footerActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        footerActions.setOpaque(false);
+
+        JButton fontSizeBtn = FontManager.createFontSizeButton(this, null, null);
+        footerActions.add(fontSizeBtn);
 
         JButton dbConfigBtn = new JButton("Database Settings");
         dbConfigBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         dbConfigBtn.setFocusPainted(false);
         dbConfigBtn.addActionListener(e -> showDBSettingsDialog());
+        footerActions.add(dbConfigBtn);
 
         statusLabel = new JLabel("Database: Checking...");
         statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
         statusLabel.setForeground(new Color(128, 128, 128));
 
         footerPanel.add(statusLabel, BorderLayout.WEST);
-        footerPanel.add(dbConfigBtn, BorderLayout.EAST);
+        footerPanel.add(footerActions, BorderLayout.EAST);
 
         mainPanel.add(footerPanel, BorderLayout.SOUTH);
 

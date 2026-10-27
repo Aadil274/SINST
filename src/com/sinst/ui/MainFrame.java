@@ -4,6 +4,7 @@ import com.sinst.exception.*;
 import com.sinst.model.*;
 import com.sinst.service.*;
 import com.sinst.util.AppExecutor;
+import com.sinst.util.FontManager;
 import com.sinst.util.UserSession;
 import com.sinst.util.ValidationUtil;
 
@@ -175,6 +176,7 @@ public class MainFrame extends JFrame {
         setLocationRelativeTo(null);
 
         initUI();
+        FontManager.applyScale(this);
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
@@ -199,6 +201,10 @@ public class MainFrame extends JFrame {
 
         JPanel topActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         topActions.setOpaque(false);
+
+        JButton fontSizeBtn = FontManager.createFontSizeButton(this, new Color(52, 73, 94), Color.WHITE);
+        fontSizeBtn.setPreferredSize(new Dimension(115, 32));
+        topActions.add(fontSizeBtn);
 
         JButton editProfileBtn = createStyledButton("Edit Profile", new Color(41, 128, 185), Color.WHITE);
         editProfileBtn.setPreferredSize(new Dimension(105, 32));
