@@ -32,87 +32,229 @@ The **Smart Internship & Skill Tracker (SINST)** provides:
 
 ---
 
-## 📂 Project Structure
+## 🏛️ Project Architecture
+
+SINST is engineered using a strict **Layered Multi-Tier Architecture** that enforces clear separation of concerns, thread safety, and maintainability.
 
 ```
-SINST/
-├── pom.xml                                 # Primary Maven project configuration
-├── mvnw / mvnw.cmd                         # Standard cross-platform Maven Wrappers
-├── .mvn/wrapper/                           # Maven Wrapper binary and properties
-├── compile.bat                             # Standardized Windows compile & packaging script
-├── run.bat                                 # Standardized Windows application launcher
-├── test.bat                                # Standardized Windows automated test runner
-├── db.properties                           # Local database connection configuration
-├── db/
-│   ├── README.md                           # Database architecture & migration reference
-│   ├── database.sql                        # Complete, idempotent fresh setup script (14 tables)
-│   ├── migration_v2.sql                    # Migration V2: Application unique constraints
-│   ├── migration_v3.sql                    # Migration V3: 4-tier skill proficiencies & benchmarks
-│   ├── migration_v4.sql                    # Migration V4: Cert-skill mappings & evidence tracking
-│   ├── migration_v5.sql                    # Migration V5: Company-role pairings & recommendations
-│   └── migration_v6.sql                    # Migration V6: Data validation, IDOR authorization, composite keys
-├── src/
-│   └── com/
-│       └── sinst/
-│           ├── Main.java                   # Desktop Application Entry Point
-│           ├── db/
-│           │   ├── DBConnection.java       # Database connection pool manager & settings
-│           │   └── AppDAO.java             # Consolidated PreparedStatement operations
-│           ├── dao/                        # Dedicated domain Data Access Objects
-│           ├── model/                      # Domain entities (Student, Application, Role, Skill, etc.)
-│           ├── service/                    # Business logic and transaction boundary services
-│           ├── ui/
-│           │   ├── LoginFrame.java         # Login, Registration & DB Configuration Dialog
-│           │   └── MainFrame.java          # Tabbed Management Dashboard with status bar
-│           ├── util/
-│           │   ├── AppExecutor.java        # Managed background execution & EDT safety
-│           │   ├── ValidationUtil.java     # Centralized domain input validation & sanitization
-│           │   └── UserSession.java        # Thread-safe authenticated user session
-│           └── test/
-│               └── SinstTestSuite.java     # Automated test suite (425 validation & model tests)
-└── README.md                               # Project documentation
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Presentation Layer (GUI)                        │
+│          LoginFrame, MainFrame, Custom Renderers, Dialog Helpers        │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Dispatches via
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│               Asynchronous Threading Layer (AppExecutor)               │
+│   Worker Thread Pool (Background JDBC) ──► EDT Callback Dispatch (GUI) │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Invokes
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                     Service Layer (Business Rules)                     │
+│    ApplicationService, CertificationService, SkillGapService, etc.     │
+│       - ValidationUtil (Regex, Syntax, Date & Stipend Verification)    │
+│       - UserSession (Thread-safe Identity & Authorization / IDOR)      │
+│       - JDBC Transaction Boundaries (setAutoCommit, commit, rollback)  │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Queries via
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                    Data Access Object Layer (JDBC)                     │
+│    ApplicationDAO, SkillDAO, StudentDAO, RecommendationDAO, etc.       │
+│       - DBConnection (Connection pooling, auto-reconnect, db.properties)│
+│       - PreparedStatements with parameterized input binding            │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Communicates with
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                    Relational Persistence Layer (DBMS)                 │
+│              MySQL 8.0+ Server (14 Normalized Tables)                  │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### Layer Responsibilities
+1. **Presentation Layer (`com.sinst.ui`)**: Pure Java Swing components (`JFrame`, `JPanel`, `JTable`, `JComboBox`). Contains zero SQL statements or business calculations; delegates all asynchronous tasks to `AppExecutor`.
+2. **Asynchronous Execution Layer (`com.sinst.util.AppExecutor`)**: Employs an internal worker pool to offload blocking database network calls away from the Swing Event Dispatch Thread (EDT), dispatching results back onto the EDT via `onSuccess` and `onError` handlers with automatic busy cursor and button state management.
+3. **Business & Service Layer (`com.sinst.service`)**: Enforces validation invariants, student authorization checks (IDOR defense), mathematical ranking calculations, and multi-step transactional boundaries.
+4. **Data Access Object Layer (`com.sinst.dao`)**: Encapsulates JDBC communication through focused DAO interfaces and implementations utilizing parameterized `PreparedStatement` queries to prevent SQL injection.
+5. **Database Layer (`MySQL 8.0+`)**: Persistent relational storage organized into 14 normalized tables enforcing primary, foreign key, and unique constraints.
+
+---
+
+## 🧩 Object-Oriented Programming (OOP) in SINST
+
+SINST is designed strictly around core OOP principles without superfluous design patterns:
+
+| OOP Concept | Application in SINST | Concrete Examples |
+| :--- | :--- | :--- |
+| **Encapsulation** | Domain entities guard state behind `private` fields, exposing strictly validated getters/setters and immutable identifiers. Invariant enforcement is localized to models and service validators. | `Student.java`, `Application.java`, `Certification.java`, `ProficiencyLevel.java`, `UserSession.java` |
+| **Abstraction** | Service and DAO tiers define clean interfaces that decouple business logic and UI from concrete database implementations, enabling easy mocking and unit testing. | Interfaces: `ApplicationService`, `SkillGapService`, `RecommendationService`, `SkillDAO`, `StudentDAO`, `ApplicationDAO` |
+| **Inheritance** | Domain specialization and exception hierarchy modeling. Specialized entities extend base entities; all custom domain exceptions inherit from a common base class. | `InternshipApplication` extends `Application`; `ValidationException`, `DatabaseException`, `UnauthorizedAccessException`, and `DuplicateEntityException` extend `SinstException` (which extends `Exception`) |
+| **Polymorphism** | Dynamic method dispatch across interface references; multi-tier deterministic sorting contract via `Comparable<T>`; custom UI table cell rendering via `TableCellRenderer`. | `RoleRecommendation` implements `Comparable<RoleRecommendation>` with a 4-tier `compareTo` sorting contract; `StatusBadgeRenderer` overrides `DefaultTableCellRenderer` |
+| **Composition** | Models represent composite real-world relationships by aggregating references rather than using fragile multiple inheritance. | `CompanyRole` composes `Company` and `Role` attributes; `Role` aggregates `List<Skill>`; `SkillEvidence` binds students to skills with audit references |
+
+---
+
+## 🗄️ Relational Database Schema & Relationships
+
+The SINST database (`sinst_db`) consists of **14 interconnected relational tables** maintaining 3NF normalization, foreign key cascading constraints, and composite unique keys.
+
+```mermaid
+erDiagram
+    students ||--o{ student_skills : "has"
+    students ||--o{ internship_applications : "submits"
+    students ||--o{ certifications : "earns"
+    students ||--o{ projects : "builds"
+    students ||--o{ student_certification_skills : "claims"
+    students ||--o{ skill_evidence : "owns"
+
+    skills ||--o{ student_skills : "categorizes"
+    skills ||--o{ role_skills : "required_by"
+    skills ||--o{ certification_skills : "taught_by"
+    skills ||--o{ student_certification_skills : "verified_as"
+    skills ||--o{ skill_evidence : "evidenced_by"
+
+    companies ||--o{ company_roles : "offers"
+    companies ||--o{ internship_applications : "receives"
+
+    roles ||--o{ company_roles : "available_at"
+    roles ||--o{ role_skills : "benchmarks"
+    roles ||--o{ internship_applications : "targeted_in"
+
+    internship_applications ||--o{ interviews : "schedules"
+    certifications ||--o{ student_certification_skills : "originates"
+
+    students {
+        int student_id PK
+        string roll_number UK
+        string full_name
+        string email UK
+        string password
+        int year_of_study
+        string role
+    }
+
+    skills {
+        int skill_id PK
+        string skill_name UK
+        string category
+    }
+
+    companies {
+        int company_id PK
+        string company_name UK
+        string industry
+        string location
+        string website
+        string careers_url
+    }
+
+    roles {
+        int role_id PK
+        string role_title UK
+        string description
+        string experience_level
+    }
+
+    role_skills {
+        int role_id PK, FK
+        int skill_id PK, FK
+        enum required_proficiency
+        boolean is_mandatory
+    }
+
+    company_roles {
+        int company_role_id PK
+        int company_id FK
+        int role_id FK
+        string vacancy_status
+        string vacancy_source
+    }
+
+    student_skills {
+        int student_id PK, FK
+        int skill_id PK, FK
+        enum proficiency_level
+    }
+
+    internship_applications {
+        int application_id PK
+        int student_id FK
+        int company_id FK
+        int role_id FK
+        date application_date
+        date deadline
+        string status
+        string stipend
+    }
+
+    interviews {
+        int interview_id PK
+        int application_id FK
+        timestamp interview_date
+        string round_type
+        string mode
+        string status
+        string outcome
+    }
+
+    certifications {
+        int certification_id PK
+        int student_id FK
+        string certificate_name
+        string issuing_organization
+        date issue_date
+        string credential_id
+    }
+
+    certification_skills {
+        int mapping_id PK
+        string certification_name
+        int skill_id FK
+        string suggested_proficiency
+        string mapping_status
+    }
+
+    student_certification_skills {
+        int record_id PK
+        int student_id FK
+        int certification_id FK
+        int skill_id FK
+        string assessed_proficiency
+        string verification_status
+    }
+
+    skill_evidence {
+        int evidence_id PK
+        int student_id FK
+        int skill_id FK
+        string evidence_type
+        int reference_id
+        string verification_status
+    }
+
+    projects {
+        int project_id PK
+        int student_id FK
+        string title
+        string technologies_used
+        string project_url
+    }
 ```
 
 ---
 
-## 📋 Prerequisites
+## 🗄️ Database Setup & Migration Instructions
 
-Before building and running SINST from a clean checkout, ensure the following are installed:
-
-1. **Java Development Kit (JDK) 21 or higher**:
-   - Verify in terminal: `java -version` and `javac -version`
-   - Download: [Oracle JDK 21+](https://www.oracle.com/java/technologies/downloads/) or [Eclipse Temurin 21+](https://adoptium.net/)
-   - Ensure `JAVA_HOME` is set in your environment variables.
-
-2. **MySQL Server 8.0 or higher**:
-   - Verify the MySQL service is running locally on port `3306`.
-   - Download: [MySQL Community Server](https://dev.mysql.com/downloads/mysql/)
-
-3. **Apache Maven (Optional if using bundled wrapper)**:
-   - SINST bundles the official Maven Wrapper (`mvnw.cmd` on Windows, `mvnw` on Linux/macOS).
-   - If using system Maven, ensure Maven 3.8+ is installed (`mvn -version`).
-
----
-
-## 🗄️ Database Initialization
-
-### 1. Fresh Database Setup (Clean Checkout)
-
-Open **MySQL Command Line Client** or **MySQL Workbench**, then execute:
-
+### Scenario A: Clean Setup (Fresh Installation)
+For a fresh setup on a local MySQL 8.0+ server:
 ```bash
 mysql -u root -p < db/database.sql
 ```
+*(Idempotent setup: initializes all 14 tables, triggers, and seeds standard industry roles, skills, and the demo student profile).*
 
-*(This safely creates `sinst_db`, initializes all 14 normalized tables, sets foreign key constraints, and seeds standard industry roles, skills, and sample test profiles).*
-
-> [!NOTE]
-> `database.sql` is completely **idempotent** (`CREATE TABLE IF NOT EXISTS` and `INSERT IGNORE`). It will **not** silently overwrite or delete existing records.
-
-### 2. Upgrading an Existing Installation
-
-If you already have an earlier version of `sinst_db`, run the versioned migration scripts in sequential order:
-
+### Scenario B: Upgrading an Existing Database
+If upgrading from an earlier schema version, execute the versioned migrations in sequential order:
 ```bash
 mysql -u root -p sinst_db < db/migration_v2.sql
 mysql -u root -p sinst_db < db/migration_v3.sql
@@ -121,146 +263,159 @@ mysql -u root -p sinst_db < db/migration_v5.sql
 mysql -u root -p sinst_db < db/migration_v6.sql
 ```
 
-For complete details on table relationships, schema versions, and verification queries, consult [`db/README.md`](db/README.md).
-
-### 3. Local Database Connectivity Configuration
-
-Configure your local MySQL credentials using either approach:
-
-**Method A: Edit `db.properties` directly in the project root:**
-```properties
-# SINST Database Configuration
-db.host=localhost
-db.port=3306
-db.name=sinst_db
-db.user=root
-db.password=your_mysql_password
-```
-
-**Method B: In-App Database Settings Dialog:**
-1. Launch the application.
-2. Click the **"Database Settings"** button in the lower right of the login window.
-3. Enter your host, port, user, and password, test the connection, and save.
+For complete details on table definitions, schema versions, and SQL health-check queries, consult [`db/README.md`](db/README.md).
 
 ---
 
-## ⚙️ Building the Application
+## 🎓 Certification-to-Skill Mapping Workflow
 
-SINST uses **Maven** as its primary build system. Choose your preferred build command:
+SINST provides a semi-automated, transparent certification mapping pipeline:
 
-### Option A: One-Click Windows Script
-Double-click or run:
+1. **Catalog Lookup**: When a student enters a certification name (e.g., *Oracle Certified Associate Java SE*), `CertificationService.findSuggestedSkills(certName)` queries `certification_skills` using SQL wildcard matching.
+2. **Interactive Review**: The user interface presents an interactive confirmation dialog displaying all matched skills, learning outcomes, and suggested proficiency levels (`Beginner`, `Intermediate`, `Advanced`, `Expert`). The student can select or uncheck individual skills and adjust suggested levels before committing.
+3. **Atomic Transaction**:
+   - Inserts the certificate record into `certifications`.
+   - Records mapping associations into `student_certification_skills`.
+   - Inserts audit records into `skill_evidence` (`evidence_type = 'CERTIFICATION'`).
+   - Updates `student_skills` using the **Non-Downgrade Rule**: If the student already possesses an equal or higher proficiency (e.g., student has `Advanced` and certification suggests `Intermediate`), the student's higher proficiency is strictly preserved.
+4. **Transaction Integrity**: Wrapped in a JDBC transaction with `conn.setAutoCommit(false)`, `conn.commit()`, and `conn.rollback()` in the `catch` block to guarantee all-or-nothing atomicity.
+
+---
+
+## 📊 Explainable Skill-Gap Calculation Formula
+
+SINST computes role readiness transparently from relational database benchmarks:
+
+### 1. Four-Tier Proficiency Scale
+Each proficiency level corresponds to a numeric domain rank:
+$$\text{None} = 0, \quad \text{Beginner} = 1, \quad \text{Intermediate} = 2, \quad \text{Advanced} = 3, \quad \text{Expert} = 4$$
+
+### 2. Numeric Level Gap
+For each required skill $i$ defined in `role_skills`:
+$$\text{LevelGap}_i = \max(0, \text{RequiredLevel}_i - \text{AssessedLevel}_i)$$
+
+### 3. Fractional Match Value ($m_i \in [0.0, 1.0]$)
+$$m_i = \begin{cases} 
+1.0 & \text{if } \text{AssessedLevel}_i \ge \text{RequiredLevel}_i \\
+\frac{\text{AssessedLevel}_i}{\text{RequiredLevel}_i} & \text{if } \text{AssessedLevel}_i < \text{RequiredLevel}_i \text{ and } \text{AssessedLevel}_i > 0 \\
+0.0 & \text{if student does not possess skill } (\text{AssessedLevel}_i = 0)
+\end{cases}$$
+
+### 4. Overall Role Readiness Score
+$$\text{Readiness \%} = \left( \frac{\sum_{i=1}^{N} (w_i \times m_i)}{\sum_{i=1}^{N} w_i} \right) \times 100$$
+where:
+- $w_i = 2.0$ for **mandatory** skills (`is_mandatory = TRUE`)
+- $w_i = 1.0$ for **optional / secondary** skills (`is_mandatory = FALSE`)
+
+### 5. Status Categorization
+- **`Met`**: Candidate level meets or exceeds role requirement ($\text{LevelGap} = 0$).
+- **`Partial`**: Candidate has the skill, but at a lower tier than required ($\text{LevelGap} > 0 \land \text{Level} > 0$).
+- **`Missing`**: Candidate has not recorded or verified the skill ($\text{Level} = 0$).
+
+> [!NOTE]
+> If a role has no skills configured in the database, SINST reports a `0%` match with the explicit note **"Insufficient Role Data"**, preventing fabricated predictions.
+
+---
+
+## 🎯 Company & Role Recommendation Methodology
+
+Recommendations are generated strictly from live database records:
+
+1. **Relational Retrieval**: Retrieves active and potential company-role associations from `company_roles` joined with `companies` and `roles`.
+2. **Transparent Match Scoring**: Evaluates the student's current proficiency across the role's required skills using the weighted formula described above.
+3. **Deterministic 4-Tier Sorting Contract**:
+   Every recommendation implements `Comparable<RoleRecommendation>` with deterministic ordering:
+   1. **Primary**: Match Percentage (highest to lowest)
+   2. **Secondary**: Detailed Weighted Score (highest to lowest)
+   3. **Tertiary**: Role Title (alphabetical A–Z)
+   4. **Quaternary**: Company Name (alphabetical A–Z)
+4. **Truthful Vacancy Classification**:
+   - `Active Campus Drive`: Officially confirmed campus recruitment.
+   - `Official Careers Portal`: Active vacancy listing on the company careers site.
+   - `Potential Role Match`: Competency alignment where no active listing is confirmed.
+   - **No Fabricated Odds**: The system never produces misleading statements like *"95% chance of being hired"*.
+
+---
+
+## ⚙️ Building & Running
+
+### Prerequisites
+- **JDK 21 or higher** (`java -version`, `javac -version`)
+- **MySQL 8.0+** running on `localhost:3306`
+- **Maven 3.8+** (or use the included `mvnw.cmd` / `mvnw` wrapper)
+
+### Build Commands
 ```cmd
+:: Using Windows batch script:
 compile.bat
-```
-*(Automatically verifies Java and Maven, executes `mvn clean package`, runs the automated test suite, and outputs the packaged artifact).*
 
-### Option B: Using Maven Wrapper (No Maven Installation Required)
-```cmd
-call mvnw.cmd clean package
-```
-*(On Linux/macOS: `./mvnw clean package`)*
+:: Using Maven Wrapper:
+mvnw.cmd clean package
 
-### Option C: Using System Maven
-```bash
+:: Using System Maven:
 mvn clean package
 ```
+*Build output: `target/sinst-1.0.0.jar` (shaded executable Uber-JAR).*
 
-### Standardized Build Artifacts
-Upon a successful build, Maven produces:
-- **`target/sinst-1.0.0.jar`**: A self-contained executable Uber/Fat JAR containing all application classes, FlatLaf styling, and the MySQL JDBC driver.
-- **`target/dependency/`**: All resolved runtime library dependencies.
-
----
-
-## 🚀 Launching the Application
-
-### Option A: One-Click Windows Launcher
-Double-click or run:
+### Running the Application
 ```cmd
+:: Using Windows batch launcher:
 run.bat
-```
-*(If the application has not been compiled yet, `run.bat` automatically calls `compile.bat` first).*
 
-### Option B: Launching the Packaged JAR
-```bash
+:: Launching packaged JAR:
 java -jar target/sinst-1.0.0.jar
-```
-
-### Option C: Launching via Maven
-```bash
-mvn exec:java
-# or using the wrapper:
-call mvnw.cmd exec:java
 ```
 
 ---
 
 ## 🧪 Automated Testing
 
-SINST includes a modern, comprehensive **JUnit 5 Jupiter** test suite covering unit validation, transparent mathematical ranking, and database integration tests under `test/`.
+SINST includes **171 automated tests** covering unit validation, transparent mathematical ranking, and database integration:
 
-### Run Tests via Windows Script
 ```cmd
+:: Run tests via Windows batch script:
 test.bat
-```
 
-### Run Tests via Maven
-```bash
+:: Run tests via Maven Wrapper:
+mvnw.cmd test
+
+:: Run tests via System Maven:
 mvn test
-# or using the Maven wrapper:
-call mvnw.cmd test
 ```
 
-### Test Suite Highlights
-- **Input Validation (`InputValidationTest`)**: Strict regex email syntax, student roll number bounds, names, year of study (1–4), phone numbers, chronological date/timestamp bounds, negative stipend detection, URL validation, and user-friendly error sanitization.
-- **Proficiency & Skill Gap (`ProficiencyAndSkillGapTest`)**: 4-tier domain scale (`None [0]` to `Expert [4]`), level gap calculations (`required - candidate`), fractional match values ($[0.0, 1.0]$), requirement status categorization, and weighted scoring formula via `SkillGapService`.
-- **Certification-to-Skill Mapping (`CertificationMappingTest`)**: 1:M cardinality between certifications and skills, learning outcomes, and unknown certification graceful handling.
-- **Evidence Review & Tracking (`EvidenceTrackingTest`)**: `SkillEvidence` model, verification statuses (`Verified`, `Unverified`, `Rejected`), and demonstrated proficiency preservation rule (never downgrade higher existing ability).
-- **Recommendation Ranking (`RecommendationRankingTest`)**: Weighted role match formula ($w_{mandatory} = 2.0, w_{optional} = 1.0$), configurable weights (`SkillMatchConfig`), 4-tier deterministic ranking (`compareTo`), truthful reporting (`Potential Role Match`, 0% for empty roles), and deduplication.
-- **Application Lifecycle (`ApplicationLifecycleTest`)**: Valid status transitions (`Applied`, `Under Review`, `Shortlisted`, `Interview`, `Accepted`, `Selected`, `Rejected`, `Withdrawn`), arbitrary status rejection, interview round bounds (1–20), interview modes, interview statuses, and chronological ordering.
-- **Service Authorization (`ServiceAuthorizationTest`)**: `UserSession` state tracking, IDOR cross-student manipulation defense (`UnauthorizedAccessException`), authorized owner access, administrative override, and duplicate entity exceptions (`DuplicateEntityException`).
-- **Swing Responsiveness & Concurrency (`ConcurrencyAndResponsivenessTest`)**: Event Dispatch Thread safety, background thread pool isolation, `onSuccess`/`onError` callback dispatch on the EDT, button disabling/re-enabling in `finally` blocks, and cancellation of superseded asynchronous tasks.
-- **DAO & Integration Tests (`DaoIntegrationTest`)**: Isolated test fixtures (`TEST_INTEG_001`), CRUD operations, foreign-key constraints, unique constraints, transaction rollback, duplicate prevention, student data ownership, and graceful offline fallback (`Assumptions.assumeTrue(...)`).
-- **Comprehensive Historical Regression (`ComprehensiveRegressionTest`)**: Full regression bridge asserting all 425 historical domain checks to ensure 100% backward compatibility.
+### Test Suite Structure
+| Test Class | Focus Area | Test Count |
+| :--- | :--- | :--- |
+| [`InputValidationTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/unit/InputValidationTest.java) | Regex email, roll number, names, year of study (1–4), phone, date/timestamp bounds, negative stipend detection, URL validation, and error sanitization | 77 tests |
+| [`ProficiencyAndSkillGapTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/unit/ProficiencyAndSkillGapTest.java) | 4-tier domain scale, numeric level gap, fractional match value, status categorization, and weighted score formula | 16 tests |
+| [`RecommendationRankingTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/unit/RecommendationRankingTest.java) | Weighted formula ($w_m=2.0, w_o=1.0$), deterministic ranking, truthful reporting (`Potential Role Match`, 0% on empty roles), and deduplication | 10 tests |
+| [`ApplicationLifecycleTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/unit/ApplicationLifecycleTest.java) | Valid application transitions, invalid status rejection, interview round bounds, modes, and chronological ordering | 38 tests |
+| [`ServiceAuthorizationTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/unit/ServiceAuthorizationTest.java) | IDOR defense across student boundaries (`UnauthorizedAccessException`), admin override, and duplicate prevention | 5 tests |
+| [`ConcurrencyAndResponsivenessTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/unit/ConcurrencyAndResponsivenessTest.java) | EDT safety, background pool execution, callback dispatch, UI responsiveness | 5 tests |
+| [`CertificationMappingTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/unit/CertificationMappingTest.java) | 1:M cardinality between certifications and skills, learning outcomes, unknown cert handling | 4 tests |
+| [`EvidenceTrackingTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/unit/EvidenceTrackingTest.java) | Verification status transitions, evidence audit trail, non-downgrade rule | 3 tests |
+| [`ComprehensiveRegressionTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/src/com/sinst/test/SinstTestSuite.java) | Full regression suite asserting all 425 historical domain checks | 6 tests |
+| [`DaoIntegrationTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/integration/DaoIntegrationTest.java) | Database CRUD, foreign key integrity, transactions, unique constraints, and offline fallback | 7 tests |
 
 ---
 
-## 🔧 Troubleshooting Common Configuration Errors
+## 🔒 Known Limitations & Future Roadmap
 
-### 1. `Communications link failure` / `Connection refused`
-- **Cause**: MySQL Server is not running or is listening on a different port.
-- **Fix**: Open Windows Services (`services.msc`), find **MySQL80**, and click **Start**. Ensure the port in `db.properties` matches your MySQL port (default: `3306`).
+In strict alignment with the project development scope, three security areas were explicitly deferred and remain intentionally outside the current development phase:
 
-### 2. `Access denied for user 'root'@'localhost'`
-- **Cause**: The password specified in `db.properties` does not match your MySQL root account password.
-- **Fix**: Update the `db.password` field in `db.properties` or launch `run.bat` and configure credentials via the **Database Settings** dialog.
-
-### 3. `Java runtime not found on PATH` or `Unsupported class file version`
-- **Cause**: Java is not installed, not on PATH, or an older Java version (< 21) is active.
-- **Fix**: Install JDK 21+ and set `JAVA_HOME` pointing to your JDK folder (e.g. `C:\Program Files\Java\jdk-21`). Add `%JAVA_HOME%\bin` to your system `PATH`.
-
-### 4. `Neither Apache Maven nor Maven Wrapper was found`
-- **Cause**: Running on a clean checkout without global Maven installed and without running from the repository root.
-- **Fix**: Execute `compile.bat` or `mvnw.cmd` directly from the repository root directory.
-
-### 5. `Unknown column 'careers_url'` or `Table 'sinst_db.company_roles' doesn't exist`
-- **Cause**: Running against an existing database that was initialized with an earlier schema version.
-- **Fix**: Apply the versioned migration scripts `migration_v2.sql` through `migration_v6.sql` sequentially as documented in the Database Setup section.
+1. **Local Database Credentials in `db.properties`**:
+   - *Current State*: Database host, username, and password are stored in plain text in `db.properties` for local desktop execution.
+   - *Production Roadmap*: Migrate to an encrypted OS keystore (Windows Credential Manager / macOS Keychain) or system environment variables.
+2. **Plain-Text Password Comparison in `StudentDAOImpl`**:
+   - *Current State*: Passwords are compared directly as plain-text strings in the database query.
+   - *Production Roadmap*: Implement salted cryptographic hashing (e.g., `Argon2id` or `BCrypt` with cost factor 12) before persisting or verifying credentials.
+3. **Prefilled Demo Login Credentials in `LoginFrame`**:
+   - *Current State*: Default roll number `25R11A0501` and password `password123` are prefilled in `LoginFrame` for academic demonstration and test evaluation.
+   - *Production Roadmap*: Remove default prefilled values in release builds, requiring users to supply explicit credentials.
 
 ---
 
-## 🔑 Demo Login Credentials
-
-The database comes pre-seeded with a ready-to-test student profile:
-- **Roll Number:** `25R11A0501`
-- **Password:** `password123`
-
-*(You can also register any new student account via the "New Registration" tab on the login screen).*
-
----
-
-## 👥 Team Members
+## 👥 Development Team
 
 - **Amog Mantha** — `25R11A0505`
 - **Aadil Ahmed Shaik** — `25R11A0501`
