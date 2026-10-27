@@ -16,6 +16,7 @@ The **Smart Internship & Skill Tracker (SINST)** provides:
 - **Explainable Skill-Gap Analysis**: Direct relational database comparisons compare a selected target role's required skill competencies against the student's recorded profile, identifying exact missing competencies and calculating an explainable readiness percentage without external black-box algorithms.
 - **Transparent Role Recommendations**: Multi-tier deterministic ranking that matches student demonstrated abilities with active and potential industry roles, distinguishing between verified evidence and unverified claims.
 - **Dynamic Dashboard Summaries**: Uses SQL aggregate functions (`COUNT`, `GROUP BY`) and `JOIN` operations to display application status breakdowns and upcoming interview deadlines.
+- **Accessibility & Dynamic Font Scaling**: Responsive in-app font scaling (`100%`, `115%`, `130%`, `150%`) with an interactive header dropdown and standard desktop zoom shortcuts (`Ctrl +`, `Ctrl -`, `Ctrl 0`) without altering or clipping layout geometry.
 
 ---
 
@@ -370,7 +371,7 @@ java -jar target/sinst-1.0.0.jar
 
 ## 🧪 Automated Testing
 
-SINST includes **171 automated tests** covering unit validation, transparent mathematical ranking, and database integration:
+SINST includes **179 automated tests** covering unit validation, transparent mathematical ranking, dynamic typography scaling, and database integration:
 
 ```cmd
 :: Run tests via Windows batch script:
@@ -394,6 +395,7 @@ mvn test
 | [`ConcurrencyAndResponsivenessTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/unit/ConcurrencyAndResponsivenessTest.java) | EDT safety, background pool execution, callback dispatch, UI responsiveness | 5 tests |
 | [`CertificationMappingTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/unit/CertificationMappingTest.java) | 1:M cardinality between certifications and skills, learning outcomes, unknown cert handling | 4 tests |
 | [`EvidenceTrackingTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/unit/EvidenceTrackingTest.java) | Verification status transitions, evidence audit trail, non-downgrade rule | 3 tests |
+| [`FontManagerTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/unit/FontManagerTest.java) | Dynamic font zoom scaling bounds, reversible component tree sizing, table row scaling, and listener dispatches | 8 tests |
 | [`ComprehensiveRegressionTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/src/com/sinst/test/SinstTestSuite.java) | Full regression suite asserting all 425 historical domain checks | 6 tests |
 | [`DaoIntegrationTest`](file:///c:/Users/shaik/OneDrive1/Desktop/CODING/SINST/test/com/sinst/integration/DaoIntegrationTest.java) | Database CRUD, foreign key integrity, transactions, unique constraints, and offline fallback | 7 tests |
 
