@@ -2694,7 +2694,8 @@ public class MainFrame extends JFrame {
     private void showReviewCertificationSkillsDialog(Certification cert, List<CertificationSkillMapping> suggestions, List<Skill> allSkills) {
         JDialog reviewDialog = new JDialog(this, "Review & Map Skills: " + cert.getCertificateName(), true);
         reviewDialog.setLayout(new BorderLayout(10, 10));
-        reviewDialog.setSize(750, 480);
+        reviewDialog.setSize(860, 520);
+        reviewDialog.setMinimumSize(new Dimension(800, 480));
         reviewDialog.setLocationRelativeTo(this);
 
         JPanel mainPanel = new JPanel(new BorderLayout(8, 8));
@@ -2758,10 +2759,14 @@ public class MainFrame extends JFrame {
         mainPanel.add(new JScrollPane(reviewTable), BorderLayout.CENTER);
 
         // Bottom panel: manual add + action buttons
-        JPanel bottomContainer = new JPanel(new BorderLayout(5, 5));
+        JPanel bottomContainer = new JPanel(new BorderLayout(6, 6));
 
-        JPanel manualAddPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        manualAddPanel.setBorder(BorderFactory.createTitledBorder("Add Competency Manually"));
+        JPanel manualAddPanel = new JPanel(new GridBagLayout());
+        manualAddPanel.setBorder(BorderFactory.createTitledBorder(
+            BorderFactory.createEtchedBorder(), "Add Competency Manually",
+            TitledBorder.LEFT, TitledBorder.TOP, new Font("Segoe UI", Font.BOLD, 12)
+        ));
+
         JComboBox<Skill> addSkillCombo = new JComboBox<>();
         if (allSkills != null) {
             for (Skill s : allSkills) {
@@ -2774,10 +2779,17 @@ public class MainFrame extends JFrame {
                 }
             } catch (Exception ignored) {}
         }
+        addSkillCombo.setPreferredSize(new Dimension(150, 28));
+
         JComboBox<String> addLevelCombo = new JComboBox<>(new String[]{"Beginner", "Intermediate", "Advanced", "Expert"});
         addLevelCombo.setSelectedItem("Intermediate");
-        JTextField addOutcomeField = new JTextField("Practical coursework & certification evaluation", 20);
-        JButton addManualBtn = new JButton("+ Add Skill");
+        addLevelCombo.setPreferredSize(new Dimension(110, 28));
+
+        JTextField addOutcomeField = new JTextField("Practical coursework & certification evaluation");
+        addOutcomeField.setPreferredSize(new Dimension(200, 28));
+
+        JButton addManualBtn = createStyledButton("+ Add Skill", new Color(39, 174, 96), Color.WHITE);
+        addManualBtn.setPreferredSize(new Dimension(100, 28));
 
         addManualBtn.addActionListener(ev -> {
             Skill sel = (Skill) addSkillCombo.getSelectedItem();
@@ -2798,13 +2810,50 @@ public class MainFrame extends JFrame {
             });
         });
 
-        manualAddPanel.add(new JLabel("Skill:"));
-        manualAddPanel.add(addSkillCombo);
-        manualAddPanel.add(new JLabel("Level:"));
-        manualAddPanel.add(addLevelCombo);
-        manualAddPanel.add(new JLabel("Outcome:"));
-        manualAddPanel.add(addOutcomeField);
-        manualAddPanel.add(addManualBtn);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(4, 5, 4, 5);
+        gbc.gridy = 0;
+        gbc.anchor = GridBagConstraints.CENTER;
+
+        // Skill:
+        gbc.gridx = 0;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        manualAddPanel.add(new JLabel("Skill:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        manualAddPanel.add(addSkillCombo, gbc);
+
+        // Level:
+        gbc.gridx = 2;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        manualAddPanel.add(new JLabel("Level:"), gbc);
+
+        gbc.gridx = 3;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        manualAddPanel.add(addLevelCombo, gbc);
+
+        // Outcome:
+        gbc.gridx = 4;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        manualAddPanel.add(new JLabel("Outcome:"), gbc);
+
+        gbc.gridx = 5;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        manualAddPanel.add(addOutcomeField, gbc);
+
+        // + Add Skill button directly following outcome, cleanly visible and never wrapped
+        gbc.gridx = 6;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        manualAddPanel.add(addManualBtn, gbc);
+
         bottomContainer.add(manualAddPanel, BorderLayout.NORTH);
 
         // Action Buttons
@@ -2916,6 +2965,7 @@ public class MainFrame extends JFrame {
 
         mainPanel.add(bottomContainer, BorderLayout.SOUTH);
         reviewDialog.add(mainPanel);
+        FontManager.applyScale(reviewDialog);
         reviewDialog.setVisible(true);
     }
 
