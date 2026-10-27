@@ -82,9 +82,7 @@ public class ResumeServiceImpl implements ResumeService {
         if (s.getPhone() != null && !s.getPhone().trim().isEmpty()) {
             sb.append(" | Phone: ").append(s.getPhone().trim());
         }
-        sb.append(" | Roll No: ").append(s.getRollNumber()).append("\n");
-        sb.append("  Department: ").append(s.getDepartment() != null ? s.getDepartment() : "Computer Science & Engineering");
-        sb.append(" | Year of Study: Year ").append(s.getYearOfStudy()).append("\n");
+        sb.append("\n");
         sb.append(lineSep).append("\n\n");
 
         sb.append("CAREER OBJECTIVE & PROFESSIONAL SUMMARY\n");
@@ -96,11 +94,13 @@ public class ResumeServiceImpl implements ResumeService {
 
         sb.append("EDUCATION\n");
         sb.append(subSep).append("\n");
-        sb.append("Bachelor of Technology in ")
-          .append(s.getDepartment() != null ? s.getDepartment() : "Computer Science & Engineering")
-          .append("\n");
-        sb.append("Standing: Year ").append(s.getYearOfStudy())
-          .append("  |  Roll Number: ").append(s.getRollNumber()).append("\n\n");
+        int year = s.getYearOfStudy();
+        int sem1 = Math.max(1, year * 2 - 1);
+        int sem2 = Math.max(2, year * 2);
+        sb.append("• Bachelor of Technology (B.Tech)\n");
+        sb.append("  Branch / Department: ").append(s.getDepartment() != null ? s.getDepartment() : "Computer Science & Engineering").append("\n");
+        sb.append("  Academic Year & Semester: Year ").append(year).append(" (Semester ").append(sem1).append(" & ").append(sem2).append(")\n");
+        sb.append("  Roll Number / Student ID: ").append(s.getRollNumber()).append("\n\n");
 
         sb.append("TECHNICAL SKILLS & COMPETENCIES\n");
         sb.append(subSep).append("\n");
@@ -201,10 +201,7 @@ public class ResumeServiceImpl implements ResumeService {
         if (s.getPhone() != null && !s.getPhone().trim().isEmpty()) {
             sb.append(" &nbsp;|&nbsp; **Phone:** ").append(s.getPhone().trim());
         }
-        sb.append(" &nbsp;|&nbsp; **Roll Number:** `").append(s.getRollNumber()).append("`\n\n");
-        sb.append("**Department:** ").append(s.getDepartment() != null ? s.getDepartment() : "Computer Science & Engineering")
-          .append(" &nbsp;|&nbsp; **Year of Study:** Year ").append(s.getYearOfStudy()).append("\n\n");
-        sb.append("---\n\n");
+        sb.append("\n\n---\n\n");
 
         sb.append("## 🎯 Professional Summary\n\n");
         sb.append("Motivated and detail-oriented undergraduate in **")
@@ -213,9 +210,12 @@ public class ResumeServiceImpl implements ResumeService {
           .append("Committed to engineering scalable, high-quality solutions and seeking impactful internship opportunities.\n\n");
 
         sb.append("## 🎓 Education\n\n");
-        sb.append("- **Degree:** Bachelor of Technology in ")
-          .append(s.getDepartment() != null ? s.getDepartment() : "Computer Science & Engineering").append("\n");
-        sb.append("- **Current Standing:** Year ").append(s.getYearOfStudy()).append("\n");
+        int mdYear = s.getYearOfStudy();
+        int mdSem1 = Math.max(1, mdYear * 2 - 1);
+        int mdSem2 = Math.max(2, mdYear * 2);
+        sb.append("- **Degree:** Bachelor of Technology (B.Tech)\n");
+        sb.append("- **Branch / Department:** ").append(s.getDepartment() != null ? s.getDepartment() : "Computer Science & Engineering").append("\n");
+        sb.append("- **Academic Year & Semester:** Year ").append(mdYear).append(" (Semester ").append(mdSem1).append(" & ").append(mdSem2).append(")\n");
         sb.append("- **Student ID / Roll No:** `").append(s.getRollNumber()).append("`\n\n");
 
         sb.append("## 💻 Technical Competencies & Skills\n\n");
@@ -328,15 +328,10 @@ public class ResumeServiceImpl implements ResumeService {
         sb.append("<div class='header'>\n");
         sb.append("  <div class='name'>").append(escapeHtml(s.getFullName())).append("</div>\n");
         sb.append("  <div class='contact'>\n");
-        sb.append("    <span><b>Email:</b> ").append(escapeHtml(s.getEmail())).append("</span> &nbsp;|&nbsp; \n");
+        sb.append("    <span><b>Email:</b> <a href='mailto:").append(escapeHtml(s.getEmail())).append("' style='color: #2563eb; text-decoration: none;'>").append(escapeHtml(s.getEmail())).append("</a></span>\n");
         if (s.getPhone() != null && !s.getPhone().trim().isEmpty()) {
-            sb.append("    <span><b>Phone:</b> ").append(escapeHtml(s.getPhone().trim())).append("</span> &nbsp;|&nbsp; \n");
+            sb.append("    &nbsp;|&nbsp; <span><b>Phone:</b> ").append(escapeHtml(s.getPhone().trim())).append("</span>\n");
         }
-        sb.append("    <span><b>Roll No:</b> ").append(escapeHtml(s.getRollNumber())).append("</span>\n");
-        sb.append("  </div>\n");
-        sb.append("  <div class='contact'>\n");
-        sb.append("    <span><b>Department:</b> ").append(escapeHtml(s.getDepartment() != null ? s.getDepartment() : "Computer Science & Engineering")).append("</span> &nbsp;|&nbsp; \n");
-        sb.append("    <span><b>Year:</b> Year ").append(s.getYearOfStudy()).append("</span>\n");
         sb.append("  </div>\n");
         sb.append("</div>\n");
 
@@ -349,13 +344,18 @@ public class ResumeServiceImpl implements ResumeService {
         sb.append("</div>\n");
 
         // Education
+        int htmlYear = s.getYearOfStudy();
+        int htmlSem1 = Math.max(1, htmlYear * 2 - 1);
+        int htmlSem2 = Math.max(2, htmlYear * 2);
         sb.append("<div class='section'>\n");
         sb.append("  <div class='section-title'>Education</div>\n");
-        sb.append("  <div style='font-size: 13px;'><b>Bachelor of Technology in ")
-          .append(escapeHtml(s.getDepartment() != null ? s.getDepartment() : "Computer Science & Engineering"))
-          .append("</b> &nbsp;&bull;&nbsp; Standing: Year ").append(s.getYearOfStudy())
-          .append(" &nbsp;&bull;&nbsp; Roll Number: ").append(escapeHtml(s.getRollNumber()))
-          .append("</div>\n");
+        sb.append("  <div style='font-size: 13px; line-height: 1.6;'>\n");
+        sb.append("    <div><b>Bachelor of Technology (B.Tech)</b> &nbsp;&bull;&nbsp; Branch / Department: <span style='color: #1e3a8a; font-weight: 600;'>")
+          .append(escapeHtml(s.getDepartment() != null ? s.getDepartment() : "Computer Science & Engineering")).append("</span></div>\n");
+        sb.append("    <div style='color: #475569;'>Academic Standing: <b>Year ").append(htmlYear).append("</b> (Semester ").append(htmlSem1).append(" & ").append(htmlSem2).append(")")
+          .append(" &nbsp;&bull;&nbsp; Roll Number / Student ID: <code style='background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-size: 12px; border: 1px solid #e2e8f0;'>")
+          .append(escapeHtml(s.getRollNumber())).append("</code></div>\n");
+        sb.append("  </div>\n");
         sb.append("</div>\n");
 
         // Technical Skills

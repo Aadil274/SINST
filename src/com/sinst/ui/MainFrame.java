@@ -2666,22 +2666,45 @@ public class MainFrame extends JFrame {
             Date d = ValidationUtil.parseDate(dateStr);
             Certification c = new Certification(0, currentStudent.getStudentId(), name, org, d, credField.getText().trim());
 
-            setBusy(true, "Searching skill suggestions...");
+            setBusy(true, "Registering certification and linking skills...");
             AppExecutor.runWorker(
-                "find-cert-suggestions",
-                () -> {
-                    List<CertificationSkillMapping> suggestions = certificationService.findSuggestedSkills(name);
-                    List<Skill> allSkills = skillService.getAllSkills();
-                    return new CertInitData(suggestions, allSkills);
-                },
+                "add-cert-auto-skills",
+                () -> certificationService.addCertificationWithAutoSkills(c, currentStudent.getStudentId()),
                 this,
-                data -> {
-                    setBusy(false, "Ready");
-                    showReviewCertificationSkillsDialog(c, data.suggestions, data.allSkills);
+                linkedSkills -> {
+                    setBusy(false, "Certification registered");
+                    refreshCertsAndProjectsAsync();
+                    refreshSkillsAsync();
+                    refreshDashboardAsync();
+                    refreshCatalogsAsync();
+
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("Certification '").append(c.getCertificateName()).append("' registered successfully!\n\n");
+                    if (linkedSkills != null && !linkedSkills.isEmpty()) {
+                        sb.append("Automatically linked & verified ").append(linkedSkills.size()).append(" skill(s):\n");
+                        for (StudentCertificationSkill s : linkedSkills) {
+                            sb.append("  • ").append(s.getSkillName())
+                              .append(" (").append(s.getAssessedProficiency()).append(")\n");
+                        }
+                        sb.append("\nYour skills profile, company directory, and verified evidence have been updated.");
+                    } else {
+                        sb.append("Issuing organization registered in company directory.\n")
+                          .append("(No catalog skills directly linked. You can link skills anytime from the Skills & Competencies tab).");
+                    }
+
+                    JOptionPane.showMessageDialog(this, sb.toString(), "Certification Added", JOptionPane.INFORMATION_MESSAGE);
                 },
                 ex -> {
                     setBusy(false, "Ready");
-                    showReviewCertificationSkillsDialog(c, new ArrayList<>(), new ArrayList<>());
+                    if (ex instanceof DuplicateEntityException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Duplicate Record", JOptionPane.WARNING_MESSAGE);
+                    } else if (ex instanceof ValidationException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Validation Error", JOptionPane.WARNING_MESSAGE);
+                    } else if (ex instanceof UnauthorizedAccessException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Error saving certification: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Database Error", JOptionPane.ERROR_MESSAGE);
+                    }
                 }
             );
         }

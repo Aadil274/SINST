@@ -24,10 +24,16 @@ public interface CertificationService {
     List<CertificationSkillMapping> getAllCatalogMappings() throws DatabaseException;
     void addCatalogMapping(CertificationSkillMapping mapping) throws ValidationException, DatabaseException;
 
-    // Prompt 4: Transactional save of certification + reviewed skills + evidence
+    // Transactional save of certification + reviewed skills + evidence
     void saveCertificationWithReviewedSkills(Certification cert, List<StudentCertificationSkill> reviewedSkills)
         throws ValidationException, DatabaseException, DuplicateEntityException;
     void saveCertificationWithReviewedSkills(Certification cert, List<StudentCertificationSkill> reviewedSkills, int studentId)
+        throws ValidationException, DatabaseException, UnauthorizedAccessException, DuplicateEntityException;
+
+    // Automatic skill discovery and binding on certification registration
+    List<StudentCertificationSkill> addCertificationWithAutoSkills(Certification cert)
+        throws ValidationException, DatabaseException, DuplicateEntityException;
+    List<StudentCertificationSkill> addCertificationWithAutoSkills(Certification cert, int studentId)
         throws ValidationException, DatabaseException, UnauthorizedAccessException, DuplicateEntityException;
 
     List<StudentCertificationSkill> getCertificationSkills(int certificationId) throws DatabaseException;

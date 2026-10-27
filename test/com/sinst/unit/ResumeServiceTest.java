@@ -76,6 +76,20 @@ public class ResumeServiceTest {
         assertTrue(text.contains("Google"));
         assertTrue(text.contains("Software Engineering Intern"));
         assertTrue(text.contains("[Status: Selected]"));
+
+        // Verify header excludes roll number, branch, and year
+        String header = text.substring(0, text.indexOf("CAREER OBJECTIVE"));
+        assertFalse(header.contains("25R11A0501"));
+        assertFalse(header.contains("Roll No"));
+        assertFalse(header.contains("Department:"));
+        assertFalse(header.contains("Year of Study:"));
+
+        // Verify Education section includes degree, branch, year, semester, and roll number
+        String edu = text.substring(text.indexOf("EDUCATION"), text.indexOf("TECHNICAL SKILLS"));
+        assertTrue(edu.contains("Bachelor of Technology (B.Tech)"));
+        assertTrue(edu.contains("Branch / Department: CSE"));
+        assertTrue(edu.contains("Academic Year & Semester: Year 3 (Semester 5 & 6)"));
+        assertTrue(edu.contains("Roll Number / Student ID: 25R11A0501"));
     }
 
     @Test
@@ -92,6 +106,17 @@ public class ResumeServiceTest {
         assertTrue(md.contains("## 💼 Internship Trajectory"));
         assertTrue(md.contains("https://github.com/Aadil274/SINST"));
         assertTrue(md.contains("`OCP-8871`"));
+
+        // Verify header excludes roll number, branch, and year
+        String header = md.substring(0, md.indexOf("## 🎯 Professional Summary"));
+        assertFalse(header.contains("25R11A0501"));
+        assertFalse(header.contains("Roll Number"));
+
+        // Verify Education includes branch, year, semester, and roll number
+        String edu = md.substring(md.indexOf("## 🎓 Education"), md.indexOf("## 💻 Technical Competencies"));
+        assertTrue(edu.contains("Branch / Department:** CSE"));
+        assertTrue(edu.contains("Semester 5 & 6"));
+        assertTrue(edu.contains("25R11A0501"));
     }
 
     @Test
@@ -107,6 +132,18 @@ public class ResumeServiceTest {
         assertTrue(html.contains("class='project-card'"));
         assertTrue(html.contains("class='cert-item'"));
         assertTrue(html.contains("@media print"));
+
+        // Header check
+        String header = html.substring(html.indexOf("<div class='header'>"), html.indexOf("<div class='section'>"));
+        assertFalse(header.contains("25R11A0501"));
+        assertFalse(header.contains("Roll No"));
+
+        // Education check
+        String edu = html.substring(html.indexOf("<div class='section-title'>Education</div>"), html.indexOf("<div class='section-title'>Technical Competencies</div>"));
+        assertTrue(edu.contains("Branch / Department:"));
+        assertTrue(edu.contains("CSE"));
+        assertTrue(edu.contains("Semester 5 & 6"));
+        assertTrue(edu.contains("25R11A0501"));
     }
 
     @Test

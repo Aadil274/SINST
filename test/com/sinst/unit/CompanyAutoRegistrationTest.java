@@ -79,6 +79,47 @@ public class CompanyAutoRegistrationTest {
         assertEquals("Amazon Web Services", mockCompanyDAO.lastEnsuredCompany);
     }
 
+    @Test
+    @DisplayName("addCertificationWithAutoSkills automatically links verified catalog skills and registers company")
+    void testAddCertificationWithAutoSkillsCatalog() throws Exception {
+        Certification cert = new Certification(0, 1, "AWS Certified Cloud Practitioner", "Amazon Web Services", Date.valueOf("2026-05-10"), "AWS-1002");
+
+        List<StudentCertificationSkill> autoSkills = certService.addCertificationWithAutoSkills(cert, 1);
+
+        assertNotNull(autoSkills);
+        assertFalse(autoSkills.isEmpty());
+        assertEquals(1, autoSkills.size());
+        assertEquals("REST APIs", autoSkills.get(0).getSkillName());
+        assertEquals("Beginner", autoSkills.get(0).getAssessedProficiency());
+        assertTrue(mockCompanyDAO.hasCompany("Amazon Web Services"));
+    }
+
+    @Test
+    @DisplayName("addCertificationWithAutoSkills falls back to keyword matching against master skills for custom certs")
+    void testAddCertificationWithAutoSkillsKeywordFallback() throws Exception {
+        Certification cert = new Certification(0, 1, "Complete Python Developer Bootcamp", "Udemy / TechOrg", Date.valueOf("2026-06-15"), "UDE-552");
+
+        List<StudentCertificationSkill> autoSkills = certService.addCertificationWithAutoSkills(cert, 1);
+
+        assertNotNull(autoSkills);
+        assertEquals(1, autoSkills.size());
+        assertEquals("Python", autoSkills.get(0).getSkillName());
+        assertEquals("Intermediate", autoSkills.get(0).getAssessedProficiency());
+        assertTrue(mockCompanyDAO.hasCompany("Udemy / TechOrg"));
+    }
+
+    @Test
+    @DisplayName("addCertificationWithAutoSkills saves cert and company cleanly without fake skills when unrecognized")
+    void testAddCertificationWithAutoSkillsUnrecognized() throws Exception {
+        Certification cert = new Certification(0, 1, "Financial Modeling & Valuation", "Corporate Finance Institute", Date.valueOf("2026-07-01"), "CFI-771");
+
+        List<StudentCertificationSkill> autoSkills = certService.addCertificationWithAutoSkills(cert, 1);
+
+        assertNotNull(autoSkills);
+        assertTrue(autoSkills.isEmpty());
+        assertTrue(mockCompanyDAO.hasCompany("Corporate Finance Institute"));
+    }
+
     // --- Mock Implementations for Isolated Unit Testing ---
 
     private static class MockCompanyDAO implements CompanyDAO {
@@ -165,7 +206,17 @@ public class CompanyAutoRegistrationTest {
     }
 
     private static class MockCertificationSkillDAO implements CertificationSkillDAO {
-        @Override public List<CertificationSkillMapping> findCatalogMappingsByCertName(String n) { return new ArrayList<>(); }
+        @Override
+        public List<CertificationSkillMapping> findCatalogMappingsByCertName(String n) {
+            List<CertificationSkillMapping> list = new ArrayList<>();
+            if (n != null && n.toLowerCase().contains("aws certified cloud practitioner")) {
+                list.add(new CertificationSkillMapping(
+                    1, "AWS Certified Cloud Practitioner", "Amazon Web Services", 5, "REST APIs",
+                    "Cloud architecture and REST endpoints", "AWS Exam Guide", "Beginner", "Verified"
+                ));
+            }
+            return list;
+        }
         @Override public List<CertificationSkillMapping> getAllCatalogMappings() { return new ArrayList<>(); }
         @Override public boolean addCatalogMapping(CertificationSkillMapping m) { return true; }
         @Override public List<StudentCertificationSkill> getStudentCertificationSkills(int certId) { return new ArrayList<>(); }
@@ -187,7 +238,14 @@ public class CompanyAutoRegistrationTest {
     }
 
     private static class MockSkillDAO implements SkillDAO {
-        @Override public List<Skill> getAllSkills() { return new ArrayList<>(); }
+        @Override
+        public List<Skill> getAllSkills() {
+            List<Skill> list = new ArrayList<>();
+            list.add(new Skill(1, "Java", "Technical", "Core Java and OOP"));
+            list.add(new Skill(2, "SQL & DBMS", "Database", "Relational querying"));
+            list.add(new Skill(10, "Python", "Technical", "Python scripting and libraries"));
+            return list;
+        }
         @Override public List<Skill> getStudentSkills(int studentId) { return new ArrayList<>(); }
         @Override public boolean hasStudentSkill(int studentId, int skillId) { return false; }
         @Override public boolean addOrUpdateStudentSkill(int studentId, int skillId, String proficiency) { return true; }

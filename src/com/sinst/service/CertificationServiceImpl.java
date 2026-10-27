@@ -14,7 +14,9 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class CertificationServiceImpl implements CertificationService {
 
@@ -380,6 +382,126 @@ public class CertificationServiceImpl implements CertificationService {
         } catch (SQLException e) {
             throw new DatabaseException("Error retrieving certification skills: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public List<StudentCertificationSkill> addCertificationWithAutoSkills(Certification cert)
+            throws ValidationException, DatabaseException, DuplicateEntityException {
+        int studentId = cert != null && cert.getStudentId() > 0 ? cert.getStudentId() : UserSession.getCurrentStudentId();
+        try {
+            return addCertificationWithAutoSkills(cert, studentId);
+        } catch (UnauthorizedAccessException e) {
+            throw new ValidationException(e.getMessage());
+        }
+    }
+
+    @Override
+    public List<StudentCertificationSkill> addCertificationWithAutoSkills(Certification cert, int studentId)
+            throws ValidationException, DatabaseException, UnauthorizedAccessException, DuplicateEntityException {
+        validateCertification(cert);
+        if (studentId > 0 && cert.getStudentId() != studentId) {
+            throw new UnauthorizedAccessException("Access denied: You cannot add a certification for another student.");
+        }
+
+        List<StudentCertificationSkill> autoSkills = resolveSkillsForCertification(cert);
+        saveCertificationWithReviewedSkills(cert, autoSkills, studentId);
+        return autoSkills;
+    }
+
+    public List<StudentCertificationSkill> resolveSkillsForCertification(Certification cert) {
+        List<StudentCertificationSkill> resolved = new ArrayList<>();
+        if (cert == null || cert.getCertificateName() == null || cert.getCertificateName().trim().isEmpty()) {
+            return resolved;
+        }
+
+        String certName = cert.getCertificateName().trim();
+        int studentId = cert.getStudentId();
+        Set<Integer> seenSkillIds = new HashSet<>();
+
+        // 1. Try finding verified catalog mappings from certification_skills
+        if (certificationSkillDAO != null) {
+            try {
+                List<CertificationSkillMapping> catalogMappings = certificationSkillDAO.findCatalogMappingsByCertName(certName);
+                if (catalogMappings != null && !catalogMappings.isEmpty()) {
+                    for (CertificationSkillMapping m : catalogMappings) {
+                        if (m != null && m.getSkillId() > 0 && seenSkillIds.add(m.getSkillId())) {
+                            String prof = m.getSuggestedProficiency();
+                            if (prof == null || prof.trim().isEmpty()) {
+                                prof = "Intermediate";
+                            }
+                            String outcome = m.getLearningOutcome();
+                            if (outcome == null || outcome.trim().isEmpty()) {
+                                outcome = "Verified competency in " + m.getSkillName() + " demonstrated through " + certName;
+                            }
+                            resolved.add(new StudentCertificationSkill(
+                                0,
+                                studentId,
+                                cert.getCertificationId(),
+                                m.getSkillId(),
+                                m.getSkillName(),
+                                outcome,
+                                "Approved",
+                                prof,
+                                null
+                            ));
+                        }
+                    }
+                }
+            } catch (SQLException ignored) {}
+        }
+
+        // 2. Keyword matching fallback against master skills catalog if no catalog mapping found
+        if (resolved.isEmpty() && skillDAO != null) {
+            try {
+                List<Skill> allMasterSkills = skillDAO.getAllSkills();
+                if (allMasterSkills != null) {
+                    String lowerCert = certName.toLowerCase();
+                    for (Skill s : allMasterSkills) {
+                        if (s == null || s.getSkillName() == null || s.getSkillId() <= 0) continue;
+                        String sName = s.getSkillName().toLowerCase();
+
+                        boolean matches = false;
+                        if (lowerCert.contains(sName)) {
+                            matches = true;
+                        } else if (sName.contains(" & ")) {
+                            String[] parts = sName.split("\\s*&\\s*");
+                            for (String p : parts) {
+                                if (p.length() >= 3 && lowerCert.contains(p.toLowerCase())) {
+                                    matches = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (matches && seenSkillIds.add(s.getSkillId())) {
+                            String assessedProf = "Intermediate";
+                            if (lowerCert.contains("expert") || lowerCert.contains("master")) {
+                                assessedProf = "Expert";
+                            } else if (lowerCert.contains("advanced") || lowerCert.contains("professional") || lowerCert.contains("architect")) {
+                                assessedProf = "Advanced";
+                            } else if (lowerCert.contains("beginner") || lowerCert.contains("foundations") || lowerCert.contains("associate") || lowerCert.contains("practitioner")) {
+                                assessedProf = "Beginner";
+                            }
+
+                            String outcome = "Demonstrated competency in " + s.getSkillName() + " through completion of " + certName;
+                            resolved.add(new StudentCertificationSkill(
+                                0,
+                                studentId,
+                                cert.getCertificationId(),
+                                s.getSkillId(),
+                                s.getSkillName(),
+                                outcome,
+                                "Approved",
+                                assessedProf,
+                                null
+                            ));
+                        }
+                    }
+                }
+            } catch (SQLException ignored) {}
+        }
+
+        return resolved;
     }
 
     @Override
