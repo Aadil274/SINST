@@ -1,6 +1,7 @@
 package com.sinst.model;
 
 import java.sql.Date;
+import java.util.Objects;
 
 public class Application {
     private int applicationId;
@@ -16,6 +17,10 @@ public class Application {
     // Display fields joined from other tables
     private String companyName;
     private String roleTitle;
+
+    // Composition references
+    private Company company;
+    private Role role;
 
     public Application() {}
 
@@ -63,6 +68,38 @@ public class Application {
 
     public String getRoleTitle() { return roleTitle; }
     public void setRoleTitle(String roleTitle) { this.roleTitle = roleTitle; }
+
+    public Company getCompany() { return company; }
+    public void setCompany(Company company) {
+        this.company = company;
+        if (company != null) {
+            this.companyId = company.getCompanyId();
+            this.companyName = company.getCompanyName();
+        }
+    }
+
+    public Role getRole() { return role; }
+    public void setRole(Role role) {
+        this.role = role;
+        if (role != null) {
+            this.roleId = role.getRoleId();
+            this.roleTitle = role.getRoleTitle();
+        }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Application that = (Application) o;
+        if (applicationId != 0 && that.applicationId != 0) return applicationId == that.applicationId;
+        return studentId == that.studentId && companyId == that.companyId && roleId == that.roleId;
+    }
+
+    @Override
+    public int hashCode() {
+        return applicationId != 0 ? Integer.hashCode(applicationId) : Objects.hash(studentId, companyId, roleId);
+    }
 
     @Override
     public String toString() {

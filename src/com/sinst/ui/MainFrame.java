@@ -1,7 +1,11 @@
 package com.sinst.ui;
 
-import com.sinst.db.AppDAO;
+import com.sinst.exception.*;
 import com.sinst.model.*;
+import com.sinst.service.*;
+import com.sinst.util.AppExecutor;
+import com.sinst.util.UserSession;
+import com.sinst.util.ValidationUtil;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -11,18 +15,37 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.sql.Date;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
+import java.net.URI;
 
 public class MainFrame extends JFrame {
 
     private final Student currentStudent;
+    private final StudentService studentService;
+    private final ApplicationService applicationService;
+    private final InterviewService interviewService;
+    private final SkillService skillService;
+    private final CertificationService certificationService;
+    private final ProjectService projectService;
+    private final SkillGapService skillGapService;
+    private final CompanyService companyService;
+    private final RoleService roleService;
+    private final DashboardService dashboardService;
+    private final RecommendationService recommendationService;
+
     private JTabbedPane mainTabbedPane;
+    private JLabel welcomeLabel;
+
+    // Status bar widgets
+    private JLabel statusLabel;
+    private JProgressBar statusBarProgress;
 
     // Dashboard widgets
     private JLabel totalAppsVal;
@@ -65,8 +88,87 @@ public class MainFrame extends JFrame {
     private JTable gapMissingTable;
     private List<SkillGapResult> currentGapResults;
 
+    // Recommendations widgets
+    private JTable recommendationsTable;
+    private DefaultTableModel recommendationsModel;
+    private JComboBox<String> recFilterCombo;
+    private JLabel recDetailHeader;
+    private JTextArea recDetailReason;
+    private JLabel recDetailVacancy;
+    private JLabel recDetailMatching;
+    private JLabel recDetailUpgrades;
+    private JLabel recDetailMissingMandatory;
+    private JLabel recDetailMissingOptional;
+    private JButton recApplyBtn;
+    private JButton recOpenCareersBtn;
+    private List<RoleRecommendation> cachedRecommendations = new ArrayList<>();
+
     public MainFrame(Student student) {
+        this(student,
+             new StudentServiceImpl(),
+             new ApplicationServiceImpl(),
+             new InterviewServiceImpl(),
+             new SkillServiceImpl(),
+             new CertificationServiceImpl(),
+             new ProjectServiceImpl(),
+             new SkillGapServiceImpl(),
+             new CompanyServiceImpl(),
+             new RoleServiceImpl(),
+             new DashboardServiceImpl(),
+             new RecommendationServiceImpl());
+    }
+
+    public MainFrame(Student student,
+                     StudentService studentService,
+                     ApplicationService applicationService,
+                     InterviewService interviewService,
+                     SkillService skillService,
+                     CertificationService certificationService,
+                     ProjectService projectService,
+                     SkillGapService skillGapService,
+                     CompanyService companyService,
+                     RoleService roleService,
+                     DashboardService dashboardService) {
+        this(student,
+             studentService,
+             applicationService,
+             interviewService,
+             skillService,
+             certificationService,
+             projectService,
+             skillGapService,
+             companyService,
+             roleService,
+             dashboardService,
+             new RecommendationServiceImpl());
+    }
+
+    public MainFrame(Student student,
+                     StudentService studentService,
+                     ApplicationService applicationService,
+                     InterviewService interviewService,
+                     SkillService skillService,
+                     CertificationService certificationService,
+                     ProjectService projectService,
+                     SkillGapService skillGapService,
+                     CompanyService companyService,
+                     RoleService roleService,
+                     DashboardService dashboardService,
+                     RecommendationService recommendationService) {
         this.currentStudent = student;
+        UserSession.setCurrentStudent(student);
+        this.studentService = studentService;
+        this.applicationService = applicationService;
+        this.interviewService = interviewService;
+        this.skillService = skillService;
+        this.certificationService = certificationService;
+        this.projectService = projectService;
+        this.skillGapService = skillGapService;
+        this.companyService = companyService;
+        this.roleService = roleService;
+        this.dashboardService = dashboardService;
+        this.recommendationService = recommendationService != null ? recommendationService : new RecommendationServiceImpl();
+
         setTitle("Smart Internship & Skill Tracker (SINST) - " + student.getFullName());
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1080, 720);
@@ -74,10 +176,13 @@ public class MainFrame extends JFrame {
         setLocationRelativeTo(null);
 
         initUI();
-        refreshAllData();
-
-        // Auto-run initial skill gap analysis for default role
-        SwingUtilities.invokeLater(this::performSkillGapAnalysis);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                AppExecutor.cancelAllTasks();
+            }
+        });
+        refreshAllDataAsync();
     }
 
     private void initUI() {
@@ -88,22 +193,31 @@ public class MainFrame extends JFrame {
         topBanner.setBackground(new Color(24, 43, 73));
         topBanner.setBorder(new EmptyBorder(12, 20, 12, 20));
 
-        JLabel welcomeLabel = new JLabel("STUDENT: " + currentStudent.getFullName().toUpperCase() + 
-                                         "  |  Roll No: " + currentStudent.getRollNumber() + 
-                                         "  |  Dept: " + currentStudent.getDepartment() + 
-                                         " (Year " + currentStudent.getYearOfStudy() + ")");
+        welcomeLabel = new JLabel();
         welcomeLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
         welcomeLabel.setForeground(Color.WHITE);
+        updateWelcomeLabelText();
+
+        JPanel topActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        topActions.setOpaque(false);
+
+        JButton editProfileBtn = createStyledButton("Edit Profile", new Color(41, 128, 185), Color.WHITE);
+        editProfileBtn.setPreferredSize(new Dimension(105, 32));
+        editProfileBtn.addActionListener(e -> showEditProfileDialog());
+        topActions.add(editProfileBtn);
 
         JButton logoutBtn = createStyledButton("Sign Out", new Color(217, 83, 79), Color.WHITE);
         logoutBtn.setPreferredSize(new Dimension(100, 32));
         logoutBtn.addActionListener(e -> {
+            AppExecutor.cancelAllTasks();
+            UserSession.clear();
             new LoginFrame().setVisible(true);
             dispose();
         });
+        topActions.add(logoutBtn);
 
         topBanner.add(welcomeLabel, BorderLayout.WEST);
-        topBanner.add(logoutBtn, BorderLayout.EAST);
+        topBanner.add(topActions, BorderLayout.EAST);
         root.add(topBanner, BorderLayout.NORTH);
 
         // 2. Main Tabbed Interface (No broken emoji glyphs)
@@ -114,10 +228,80 @@ public class MainFrame extends JFrame {
         mainTabbedPane.addTab("Applications & Interviews", createApplicationsTab());
         mainTabbedPane.addTab("Skills & Profile", createSkillsProfileTab());
         mainTabbedPane.addTab("Skill-Gap Analyzer", createSkillGapTab());
+        mainTabbedPane.addTab("Role Recommendations", createRecommendationsTab());
         mainTabbedPane.addTab("Companies & Roles", createCatalogsTab());
 
+        // Immediately refresh views on tab change asynchronously to prevent UI freeze and stale data
+        mainTabbedPane.addChangeListener(e -> {
+            int selected = mainTabbedPane.getSelectedIndex();
+            switch (selected) {
+                case 0:
+                    refreshDashboardAsync();
+                    break;
+                case 1:
+                    refreshApplicationsAsync();
+                    break;
+                case 2:
+                    refreshSkillsAsync();
+                    refreshCertsAndProjectsAsync();
+                    break;
+                case 3:
+                    performSkillGapAnalysisAsync();
+                    break;
+                case 4:
+                    refreshRecommendationsAsync();
+                    break;
+                case 5:
+                    refreshCatalogsAsync();
+                    break;
+            }
+        });
+
         root.add(mainTabbedPane, BorderLayout.CENTER);
+
+        // 3. Subtle Status Bar at South
+        JPanel statusBar = new JPanel(new BorderLayout(8, 0));
+        statusBar.setBackground(new Color(240, 243, 246));
+        statusBar.setBorder(new EmptyBorder(4, 14, 4, 14));
+
+        statusLabel = new JLabel("Ready");
+        statusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        statusLabel.setForeground(new Color(100, 110, 120));
+
+        statusBarProgress = new JProgressBar();
+        statusBarProgress.setIndeterminate(true);
+        statusBarProgress.setPreferredSize(new Dimension(100, 14));
+        statusBarProgress.setVisible(false);
+
+        statusBar.add(statusLabel, BorderLayout.WEST);
+        statusBar.add(statusBarProgress, BorderLayout.EAST);
+        root.add(statusBar, BorderLayout.SOUTH);
+
         add(root);
+    }
+
+    private void setBusy(boolean busy, String message) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> setBusy(busy, message));
+            return;
+        }
+        if (statusLabel != null) {
+            statusLabel.setText(message != null ? message : (busy ? "Working..." : "Ready"));
+        }
+        if (statusBarProgress != null) {
+            statusBarProgress.setVisible(busy);
+        }
+        setCursor(busy ? Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR) : Cursor.getDefaultCursor());
+    }
+
+    private void updateWelcomeLabelText() {
+        if (welcomeLabel != null) {
+            welcomeLabel.setText("STUDENT: " + currentStudent.getFullName().toUpperCase() + 
+                                 "  |  Roll No: " + currentStudent.getRollNumber() + 
+                                 "  |  Dept: " + currentStudent.getDepartment() + 
+                                 " (Year " + currentStudent.getYearOfStudy() + ")");
+        }
+        setTitle("Smart Internship & Skill Tracker (SINST) - " + currentStudent.getFullName());
     }
 
     public static JButton createStyledButton(String text, Color bg, Color fg) {
@@ -176,13 +360,20 @@ public class MainFrame extends JFrame {
         JButton runGapBtn = createStyledButton("Analyze Skill Gap", new Color(142, 68, 173), Color.WHITE);
         runGapBtn.addActionListener(e -> {
             mainTabbedPane.setSelectedIndex(3);
-            performSkillGapAnalysis();
+            performSkillGapAnalysisAsync();
         });
         quickBar.add(runGapBtn);
 
+        JButton recBtn = createStyledButton("Role Recommendations", new Color(13, 148, 136), Color.WHITE);
+        recBtn.addActionListener(e -> {
+            mainTabbedPane.setSelectedIndex(4);
+            refreshRecommendationsAsync();
+        });
+        quickBar.add(recBtn);
+
         JButton refreshBtn = new JButton("Refresh Dashboard");
         refreshBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        refreshBtn.addActionListener(e -> refreshDashboard());
+        refreshBtn.addActionListener(e -> refreshDashboardAsync());
         quickBar.add(refreshBtn);
 
         topSection.add(quickBar, BorderLayout.SOUTH);
@@ -273,6 +464,9 @@ public class MainFrame extends JFrame {
         JButton updateStatusBtn = new JButton("Update Status");
         updateStatusBtn.addActionListener(e -> showUpdateStatusDialog());
 
+        JButton editAppBtn = new JButton("Edit Application");
+        editAppBtn.addActionListener(e -> showEditApplicationDialog());
+
         JButton scheduleIntBtn = new JButton("Schedule Interview");
         scheduleIntBtn.addActionListener(e -> showScheduleInterviewDialog());
 
@@ -284,6 +478,7 @@ public class MainFrame extends JFrame {
 
         actionBtns.add(addAppBtn);
         actionBtns.add(updateStatusBtn);
+        actionBtns.add(editAppBtn);
         actionBtns.add(scheduleIntBtn);
         actionBtns.add(viewIntsBtn);
         actionBtns.add(deleteAppBtn);
@@ -304,12 +499,12 @@ public class MainFrame extends JFrame {
         appsTable.getColumnModel().getColumn(5).setPreferredWidth(95);
         appsTable.getColumnModel().getColumn(5).setCellRenderer(new StatusBadgeRenderer());
 
-        // Double click to update status
+        // Double click to edit application details
         appsTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    showUpdateStatusDialog();
+                    showEditApplicationDialog();
                 }
             }
         });
@@ -361,6 +556,13 @@ public class MainFrame extends JFrame {
         studentSkillsTable.getColumnModel().getColumn(0).setPreferredWidth(45);
         skillsBox.add(new JScrollPane(studentSkillsTable), BorderLayout.CENTER);
 
+        JPanel skillBottomBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 2));
+        skillBottomBar.setOpaque(false);
+        JButton viewSkillEvidenceBtn = new JButton("View Skill Evidence");
+        viewSkillEvidenceBtn.addActionListener(e -> showSkillEvidenceDialog());
+        skillBottomBar.add(viewSkillEvidenceBtn);
+        skillsBox.add(skillBottomBar, BorderLayout.SOUTH);
+
         panel.add(skillsBox);
 
         // Right Panel: Certifications & Projects Tabbed
@@ -379,9 +581,15 @@ public class MainFrame extends JFrame {
         JPanel certBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton addCertBtn = createStyledButton("+ Add Certification", new Color(24, 100, 180), Color.WHITE);
         addCertBtn.addActionListener(e -> showAddCertDialog());
+        JButton viewSkillsBtn = new JButton("View Skills & Evidence");
+        viewSkillsBtn.addActionListener(e -> showViewCertSkillsDialog());
+        JButton editCertBtn = new JButton("Edit Selected");
+        editCertBtn.addActionListener(e -> showEditCertDialog());
         JButton delCertBtn = new JButton("Remove");
         delCertBtn.addActionListener(e -> deleteSelectedCert());
         certBtns.add(addCertBtn);
+        certBtns.add(viewSkillsBtn);
+        certBtns.add(editCertBtn);
         certBtns.add(delCertBtn);
         certsPanel.add(certBtns, BorderLayout.SOUTH);
         bioTabs.addTab("Certifications", certsPanel);
@@ -399,9 +607,12 @@ public class MainFrame extends JFrame {
         JPanel projBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton addProjBtn = createStyledButton("+ Add Project", new Color(24, 100, 180), Color.WHITE);
         addProjBtn.addActionListener(e -> showAddProjectDialog());
+        JButton editProjBtn = new JButton("Edit Selected");
+        editProjBtn.addActionListener(e -> showEditProjectDialog());
         JButton delProjBtn = new JButton("Remove");
         delProjBtn.addActionListener(e -> deleteSelectedProject());
         projBtns.add(addProjBtn);
+        projBtns.add(editProjBtn);
         projBtns.add(delProjBtn);
         projPanel.add(projBtns, BorderLayout.SOUTH);
         bioTabs.addTab("Academic Projects", projPanel);
@@ -428,11 +639,11 @@ public class MainFrame extends JFrame {
         selectBox.add(new JLabel("Select Target Internship Role:"));
         gapRoleCombo = new JComboBox<>();
         gapRoleCombo.setPreferredSize(new Dimension(320, 32));
-        gapRoleCombo.addActionListener(e -> performSkillGapAnalysis());
+        gapRoleCombo.addActionListener(e -> performSkillGapAnalysisAsync());
         selectBox.add(gapRoleCombo);
 
         JButton analyzeBtn = createStyledButton("Run Skill-Gap Analysis", new Color(24, 100, 180), Color.WHITE);
-        analyzeBtn.addActionListener(e -> performSkillGapAnalysis());
+        analyzeBtn.addActionListener(e -> performSkillGapAnalysisAsync());
         selectBox.add(analyzeBtn);
 
         topHeader.add(selectBox, BorderLayout.NORTH);
@@ -502,6 +713,437 @@ public class MainFrame extends JFrame {
         return panel;
     }
 
+    // =========================================================================
+    // TAB 5: ROLE RECOMMENDATIONS
+    // =========================================================================
+
+    private JPanel createRecommendationsTab() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(new EmptyBorder(12, 12, 12, 12));
+        panel.setBackground(new Color(245, 247, 250));
+
+        // 1. Top Section: Banner + Notice + Filter Bar
+        JPanel topContainer = new JPanel(new BorderLayout(6, 6));
+        topContainer.setOpaque(false);
+
+        // Header Title
+        JPanel titlePanel = new JPanel(new GridLayout(2, 1, 2, 2));
+        titlePanel.setOpaque(false);
+        JLabel titleLbl = new JLabel("Internship Role & Company Recommendations");
+        titleLbl.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        titleLbl.setForeground(new Color(30, 41, 59));
+
+        JLabel subLbl = new JLabel("Personalized role recommendations evaluated from your demonstrated skills, certifications, and required competencies.");
+        subLbl.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        subLbl.setForeground(new Color(100, 116, 139));
+        titlePanel.add(titleLbl);
+        titlePanel.add(subLbl);
+        topContainer.add(titlePanel, BorderLayout.NORTH);
+
+        // Critical Distinction Notice Box
+        JPanel noticePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        noticePanel.setBackground(new Color(254, 243, 199));
+        noticePanel.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(245, 158, 11), 1),
+            new EmptyBorder(4, 8, 4, 8)
+        ));
+        JLabel noticeLbl = new JLabel("<html><b>Potential Match Notice:</b> Recommendations reflect curricular skill alignment against company hiring profiles. They represent potential role matches and do not guarantee active vacancies or employment. Check official company careers portals for active job listings.</html>");
+        noticeLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        noticeLbl.setForeground(new Color(146, 64, 14));
+        noticePanel.add(noticeLbl);
+        topContainer.add(noticePanel, BorderLayout.CENTER);
+
+        // Control / Filter Bar
+        JPanel filterBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 5));
+        filterBar.setBackground(Color.WHITE);
+        filterBar.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(225, 230, 238), 1),
+            new EmptyBorder(4, 8, 4, 8)
+        ));
+
+        filterBar.add(new JLabel("Filter by Alignment:"));
+        recFilterCombo = new JComboBox<>(new String[]{
+            "All Recommendations",
+            "High Readiness (>=80%)",
+            "Moderate Readiness (>=50%)",
+            "Not Yet Applied"
+        });
+        recFilterCombo.addActionListener(e -> filterAndDisplayRecommendations());
+        filterBar.add(recFilterCombo);
+
+        JButton refreshRecBtn = createStyledButton("Refresh Recommendations", new Color(13, 148, 136), Color.WHITE);
+        refreshRecBtn.addActionListener(e -> refreshRecommendations());
+        filterBar.add(refreshRecBtn);
+
+        JButton weightsBtn = new JButton("View Match Formula");
+        weightsBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        weightsBtn.addActionListener(e -> showMatchFormulaDialog());
+        filterBar.add(weightsBtn);
+
+        topContainer.add(filterBar, BorderLayout.SOUTH);
+        panel.add(topContainer, BorderLayout.NORTH);
+
+        // 2. Center Table Section
+        recommendationsModel = new DefaultTableModel(new String[]{
+            "Rank", "Match Score", "Company", "Target Role", "Vacancy Status", "Application Status", "Missing Mandatory Skills", "Official Careers Portal"
+        }, 0) {
+            @Override public boolean isCellEditable(int r, int c) { return false; }
+        };
+        recommendationsTable = new JTable(recommendationsModel);
+        recommendationsTable.setRowHeight(28);
+        recommendationsTable.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        recommendationsTable.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
+        recommendationsTable.getColumnModel().getColumn(0).setPreferredWidth(50);
+        recommendationsTable.getColumnModel().getColumn(1).setPreferredWidth(95);
+        recommendationsTable.getColumnModel().getColumn(2).setPreferredWidth(140);
+        recommendationsTable.getColumnModel().getColumn(3).setPreferredWidth(190);
+        recommendationsTable.getColumnModel().getColumn(4).setPreferredWidth(140);
+        recommendationsTable.getColumnModel().getColumn(5).setPreferredWidth(130);
+        recommendationsTable.getColumnModel().getColumn(6).setPreferredWidth(180);
+        recommendationsTable.getColumnModel().getColumn(7).setPreferredWidth(160);
+
+        // Custom Renderer for Match Score
+        recommendationsTable.getColumnModel().getColumn(1).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+                JLabel lbl = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, col);
+                lbl.setHorizontalAlignment(SwingConstants.CENTER);
+                lbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
+                if (!isSelected) {
+                    String str = String.valueOf(value).replace("%", "").trim();
+                    try {
+                        int score = Integer.parseInt(str);
+                        if (score >= 80) {
+                            lbl.setForeground(new Color(39, 174, 96));
+                        } else if (score >= 50) {
+                            lbl.setForeground(new Color(230, 126, 34));
+                        } else {
+                            lbl.setForeground(new Color(127, 140, 141));
+                        }
+                    } catch (Exception ignored) {
+                        lbl.setForeground(Color.DARK_GRAY);
+                    }
+                }
+                return lbl;
+            }
+        });
+
+        // Custom Renderer for Application Status
+        recommendationsTable.getColumnModel().getColumn(5).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+                JLabel lbl = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, col);
+                lbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
+                if (!isSelected) {
+                    String str = String.valueOf(value);
+                    if (str.startsWith("Applied")) {
+                        lbl.setForeground(new Color(24, 100, 180));
+                    } else {
+                        lbl.setForeground(new Color(100, 110, 120));
+                    }
+                }
+                return lbl;
+            }
+        });
+
+        recommendationsTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                int row = recommendationsTable.getSelectedRow();
+                if (row >= 0) {
+                    updateRecommendationDetail(row);
+                }
+            }
+        });
+
+        JScrollPane tableScroll = new JScrollPane(recommendationsTable);
+        tableScroll.setBorder(BorderFactory.createLineBorder(new Color(225, 230, 238), 1));
+
+        // 3. Bottom Detail Panel
+        JPanel detailContainer = new JPanel(new BorderLayout(8, 8));
+        detailContainer.setBackground(Color.WHITE);
+        detailContainer.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createTitledBorder(BorderFactory.createEtchedBorder(), "Recommendation Analysis & Competency Breakdown", TitledBorder.LEFT, TitledBorder.TOP, new Font("Segoe UI", Font.BOLD, 13)),
+            new EmptyBorder(8, 10, 8, 10)
+        ));
+
+        // Top info inside detail panel
+        JPanel detailTop = new JPanel(new BorderLayout(6, 4));
+        detailTop.setOpaque(false);
+        recDetailHeader = new JLabel("Select a recommended role above to inspect competency alignment.");
+        recDetailHeader.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        recDetailHeader.setForeground(new Color(30, 41, 59));
+        detailTop.add(recDetailHeader, BorderLayout.NORTH);
+
+        recDetailReason = new JTextArea(2, 60);
+        recDetailReason.setEditable(false);
+        recDetailReason.setLineWrap(true);
+        recDetailReason.setWrapStyleWord(true);
+        recDetailReason.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        recDetailReason.setBackground(new Color(248, 250, 252));
+        recDetailReason.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(226, 232, 240), 1),
+            new EmptyBorder(6, 8, 6, 8)
+        ));
+        detailTop.add(recDetailReason, BorderLayout.CENTER);
+
+        recDetailVacancy = new JLabel("");
+        recDetailVacancy.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+        recDetailVacancy.setForeground(new Color(100, 116, 139));
+        detailTop.add(recDetailVacancy, BorderLayout.SOUTH);
+        detailContainer.add(detailTop, BorderLayout.NORTH);
+
+        // Center Grid inside detail panel: Competencies breakdown
+        JPanel compGrid = new JPanel(new GridLayout(2, 2, 8, 6));
+        compGrid.setOpaque(false);
+        compGrid.setBorder(new EmptyBorder(6, 0, 6, 0));
+
+        compGrid.add(recDetailMatching = new JLabel("Satisfied Skills: -"));
+        recDetailMatching.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        recDetailMatching.setForeground(new Color(22, 101, 52));
+
+        compGrid.add(recDetailUpgrades = new JLabel("Upgrades Needed: -"));
+        recDetailUpgrades.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        recDetailUpgrades.setForeground(new Color(194, 65, 12));
+
+        compGrid.add(recDetailMissingMandatory = new JLabel("Missing Mandatory: -"));
+        recDetailMissingMandatory.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        recDetailMissingMandatory.setForeground(new Color(185, 28, 28));
+
+        compGrid.add(recDetailMissingOptional = new JLabel("Missing Optional: -"));
+        recDetailMissingOptional.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        recDetailMissingOptional.setForeground(new Color(100, 116, 139));
+
+        detailContainer.add(compGrid, BorderLayout.CENTER);
+
+        // Bottom Actions inside detail panel
+        JPanel detailActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
+        detailActions.setOpaque(false);
+
+        recApplyBtn = createStyledButton("+ Record Application for this Role", new Color(24, 100, 180), Color.WHITE);
+        recApplyBtn.addActionListener(e -> applyToSelectedRecommendation());
+
+        recOpenCareersBtn = new JButton("Open Official Careers Portal");
+        recOpenCareersBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        recOpenCareersBtn.addActionListener(e -> openCareersPortalForSelected());
+
+        JButton viewGapBtn = new JButton("Detailed Skill-Gap Analysis");
+        viewGapBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        viewGapBtn.addActionListener(e -> jumpToSkillGapForSelected());
+
+        detailActions.add(viewGapBtn);
+        detailActions.add(recOpenCareersBtn);
+        detailActions.add(recApplyBtn);
+        detailContainer.add(detailActions, BorderLayout.SOUTH);
+
+        // Split pane holding table (top) and detail (bottom)
+        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tableScroll, detailContainer);
+        splitPane.setResizeWeight(0.55);
+        splitPane.setDividerSize(6);
+        splitPane.setBorder(null);
+
+        panel.add(splitPane, BorderLayout.CENTER);
+        return panel;
+    }
+
+    public void refreshRecommendationsAsync() {
+        if (recommendationsModel == null) return;
+        setBusy(true, "Calculating role recommendations...");
+        AppExecutor.runWorker(
+            "refresh-recommendations",
+            () -> recommendationService.getRecommendations(currentStudent.getStudentId(), skillGapService.getConfig()),
+            this,
+            recs -> {
+                setBusy(false, "Ready");
+                cachedRecommendations = recs;
+                filterAndDisplayRecommendations();
+            },
+            error -> {
+                setBusy(false, "Ready");
+                JOptionPane.showMessageDialog(this, "Error generating recommendations: " + error.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        );
+    }
+
+    private void refreshRecommendations() {
+        if (recommendationsModel == null) return;
+        try {
+            cachedRecommendations = recommendationService.getRecommendations(currentStudent.getStudentId(), skillGapService.getConfig());
+            filterAndDisplayRecommendations();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Error generating recommendations: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void filterAndDisplayRecommendations() {
+        if (recommendationsModel == null) return;
+        recommendationsModel.setRowCount(0);
+        if (cachedRecommendations == null) return;
+
+        String filter = recFilterCombo != null ? (String) recFilterCombo.getSelectedItem() : "All Recommendations";
+        int rank = 1;
+
+        for (RoleRecommendation rec : cachedRecommendations) {
+            if ("High Readiness (>=80%)".equals(filter) && rec.getMatchPercentage() < 80) {
+                continue;
+            }
+            if ("Moderate Readiness (>=50%)".equals(filter) && rec.getMatchPercentage() < 50) {
+                continue;
+            }
+            if ("Not Yet Applied".equals(filter) && rec.isHasApplied()) {
+                continue;
+            }
+
+            String appStateStr = rec.isHasApplied() ? "Applied [" + rec.getApplicationStatus() + "]" : "Not Applied";
+            recommendationsModel.addRow(new Object[]{
+                rank++,
+                rec.getMatchPercentage() + "%",
+                rec.getCompanyName(),
+                rec.getRoleTitle(),
+                rec.getVacancyStatus(),
+                appStateStr,
+                rec.getMissingMandatoryNames(),
+                rec.getEffectiveCareersUrl()
+            });
+        }
+
+        if (recommendationsTable != null && recommendationsTable.getRowCount() > 0) {
+            recommendationsTable.setRowSelectionInterval(0, 0);
+            updateRecommendationDetail(0);
+        } else {
+            clearRecommendationDetail();
+        }
+    }
+
+    private RoleRecommendation getSelectedRecommendation() {
+        if (recommendationsTable == null) return null;
+        int row = recommendationsTable.getSelectedRow();
+        if (row < 0 || cachedRecommendations == null || cachedRecommendations.isEmpty()) return null;
+
+        String compName = (String) recommendationsModel.getValueAt(row, 2);
+        String roleTitle = (String) recommendationsModel.getValueAt(row, 3);
+
+        for (RoleRecommendation rec : cachedRecommendations) {
+            if (rec.getCompanyName().equalsIgnoreCase(compName) && rec.getRoleTitle().equalsIgnoreCase(roleTitle)) {
+                return rec;
+            }
+        }
+        return null;
+    }
+
+    private void updateRecommendationDetail(int row) {
+        RoleRecommendation rec = getSelectedRecommendation();
+        if (rec == null) {
+            clearRecommendationDetail();
+            return;
+        }
+
+        recDetailHeader.setText(rec.getCompanyName() + " — " + rec.getRoleTitle() + " (" + rec.getMatchPercentage() + "% Match Score)");
+        recDetailReason.setText(rec.getRecommendationReason());
+        recDetailVacancy.setText("Status: " + rec.getVacancyStatus() + 
+                                "  |  Source: " + rec.getVacancySource() + 
+                                "  |  Info Source: " + rec.getInformationSource() +
+                                "  |  Last Verified: " + (rec.getLastVerified() != null ? rec.getLastVerified().toString() : "N/A"));
+
+        recDetailMatching.setText("Satisfied Skills (" + rec.getMatchingSkills().size() + "): " + rec.getMatchingSkillNames());
+        String upgrades = rec.getPartiallyMatchedSkills().isEmpty() ? "None" : rec.getPartiallyMatchedNames();
+        recDetailUpgrades.setText("Upgrades Needed (" + rec.getPartiallyMatchedSkills().size() + "): " + upgrades);
+        recDetailMissingMandatory.setText("Missing Mandatory (" + rec.getMissingMandatorySkills().size() + "): " + rec.getMissingMandatoryNames());
+        recDetailMissingOptional.setText("Missing Optional (" + rec.getMissingOptionalSkills().size() + "): " + rec.getMissingOptionalNames());
+
+        if (rec.isHasApplied()) {
+            recApplyBtn.setText("Already Applied (" + rec.getApplicationStatus() + ")");
+            recApplyBtn.setEnabled(false);
+        } else {
+            recApplyBtn.setText("+ Record Application for " + rec.getRoleTitle());
+            recApplyBtn.setEnabled(true);
+        }
+
+        String careersUrl = rec.getEffectiveCareersUrl();
+        if (careersUrl != null && !careersUrl.isEmpty()) {
+            recOpenCareersBtn.setText("Open Careers Portal (" + rec.getCompanyName() + ")");
+            recOpenCareersBtn.setEnabled(true);
+        } else {
+            recOpenCareersBtn.setText("No Careers Portal URL");
+            recOpenCareersBtn.setEnabled(false);
+        }
+    }
+
+    private void clearRecommendationDetail() {
+        if (recDetailHeader != null) recDetailHeader.setText("No recommendations available for the selected filter.");
+        if (recDetailReason != null) recDetailReason.setText("");
+        if (recDetailVacancy != null) recDetailVacancy.setText("");
+        if (recDetailMatching != null) recDetailMatching.setText("Satisfied Skills: -");
+        if (recDetailUpgrades != null) recDetailUpgrades.setText("Upgrades Needed: -");
+        if (recDetailMissingMandatory != null) recDetailMissingMandatory.setText("Missing Mandatory: -");
+        if (recDetailMissingOptional != null) recDetailMissingOptional.setText("Missing Optional: -");
+        if (recApplyBtn != null) recApplyBtn.setEnabled(false);
+        if (recOpenCareersBtn != null) recOpenCareersBtn.setEnabled(false);
+    }
+
+    private void applyToSelectedRecommendation() {
+        RoleRecommendation rec = getSelectedRecommendation();
+        if (rec != null) {
+            showAddApplicationDialog(rec.getCompanyId(), rec.getRoleId());
+        }
+    }
+
+    private void openCareersPortalForSelected() {
+        RoleRecommendation rec = getSelectedRecommendation();
+        if (rec == null) return;
+        String url = rec.getEffectiveCareersUrl();
+        if (url == null || url.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No careers URL recorded for " + rec.getCompanyName() + ".", "Notice", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(new URI(url.trim()));
+            } else {
+                JTextField urlField = new JTextField(url.trim());
+                urlField.setEditable(false);
+                JOptionPane.showMessageDialog(this, urlField, "Official Careers Portal URL", JOptionPane.INFORMATION_MESSAGE);
+            }
+        } catch (Exception ex) {
+            JTextField urlField = new JTextField(url.trim());
+            urlField.setEditable(false);
+            JOptionPane.showMessageDialog(this, urlField, "Official Careers Portal URL", JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    private void jumpToSkillGapForSelected() {
+        RoleRecommendation rec = getSelectedRecommendation();
+        if (rec == null) return;
+        mainTabbedPane.setSelectedIndex(3); // Switch to Skill Gap tab
+        if (gapRoleCombo != null) {
+            for (int i = 0; i < gapRoleCombo.getItemCount(); i++) {
+                Role r = gapRoleCombo.getItemAt(i);
+                if (r != null && r.getRoleId() == rec.getRoleId()) {
+                    gapRoleCombo.setSelectedIndex(i);
+                    break;
+                }
+            }
+        }
+    }
+
+    private void showMatchFormulaDialog() {
+        String msg = "<html><body style='width: 420px; font-family: Segoe UI;'>" +
+            "<h3>SINST Recommendation & Alignment Formula</h3>" +
+            "<p>Recommendations calculate curricular qualification match using the documented transparent formula:</p>" +
+            "<p style='background-color: #f1f5f9; padding: 6px; font-family: Consolas;'><b>Match Score</b> = (&Sigma; (Skill Match Value &times; Weight) / &Sigma; Weights) &times; 100</p>" +
+            "<ul>" +
+            "<li><b>Mandatory Skills:</b> 2.0x weight (essential core competence)</li>" +
+            "<li><b>Optional Skills:</b> 1.0x weight (supplementary competency)</li>" +
+            "<li><b>Full Credit (1.0):</b> Demonstrated proficiency &ge; required benchmark</li>" +
+            "<li><b>Partial Credit:</b> Demonstrated Level / Required Level</li>" +
+            "<li><b>Missing Skill:</b> 0.0 credit</li>" +
+            "</ul>" +
+            "<p><b>Ranking Priority:</b> Match Score (Desc) &rarr; Missing Mandatory Count (Asc) &rarr; Verified Evidence Count (Desc).</p>" +
+            "<p style='color: #b45309;'><i>Critical Distinction: SINST labels results as Potential Role Matches based on company hiring profiles and does not fabricate active job postings or hiring probabilities.</i></p>" +
+            "</body></html>";
+        JOptionPane.showMessageDialog(this, msg, "Explainable Match Formula", JOptionPane.INFORMATION_MESSAGE);
+    }
+
     private JPanel createCatalogsTab() {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(new EmptyBorder(12, 12, 12, 12));
@@ -553,15 +1195,35 @@ public class MainFrame extends JFrame {
             return;
         }
         int id = ((Number) table.getValueAt(row, 0)).intValue();
-        try {
-            if (companyCatalog) {
-                for (Company c : AppDAO.getAllCompanies()) if (c.getCompanyId() == id) { showCompanyEditor(c); return; }
-            } else {
-                for (Role role : AppDAO.getAllRoles()) if (role.getRoleId() == id) { showRoleEditor(role); return; }
+        setBusy(true, "Loading catalog record...");
+        AppExecutor.runWorker(
+            "load-catalog-item",
+            () -> {
+                if (companyCatalog) {
+                    for (Company c : companyService.getAllCompanies()) {
+                        if (c.getCompanyId() == id) return c;
+                    }
+                } else {
+                    for (Role role : roleService.getAllRoles()) {
+                        if (role.getRoleId() == id) return role;
+                    }
+                }
+                return null;
+            },
+            this,
+            item -> {
+                setBusy(false, "Ready");
+                if (item instanceof Company) {
+                    showCompanyEditor((Company) item);
+                } else if (item instanceof Role) {
+                    showRoleEditor((Role) item);
+                }
+            },
+            ex -> {
+                setBusy(false, "Ready");
+                showCatalogError(ex.getMessage());
             }
-        } catch (SQLException ex) {
-            showCatalogError(ex);
-        }
+        );
     }
 
     private void showCompanyEditor(Company current) {
@@ -577,42 +1239,92 @@ public class MainFrame extends JFrame {
         form.add(new JLabel("Website")); form.add(website);
         form.add(new JLabel("Contact email")); form.add(email);
         if (JOptionPane.showConfirmDialog(this, form, current == null ? "Add Company" : "Edit Company", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
-        if (name.getText().trim().isEmpty()) { JOptionPane.showMessageDialog(this, "Company name is required."); return; }
         Company value = new Company(current == null ? 0 : current.getCompanyId(), name.getText().trim(), industry.getText().trim(), location.getText().trim(), website.getText().trim(), email.getText().trim());
-        try { AppDAO.saveCompany(value); refreshCatalogs(); }
-        catch (SQLException ex) { showCatalogError(ex); }
+
+        setBusy(true, "Saving company...");
+        AppExecutor.runWorker(
+            "save-company",
+            () -> {
+                companyService.saveCompany(value);
+                return null;
+            },
+            this,
+            res -> {
+                setBusy(false, "Company saved");
+                refreshCatalogsAsync();
+            },
+            ex -> {
+                setBusy(false, "Ready");
+                showCatalogError(ex.getMessage());
+            }
+        );
     }
 
     private void showRoleEditor(Role current) {
+        setBusy(true, "Loading role skills...");
+        AppExecutor.runWorker(
+            "load-role-skills",
+            () -> {
+                List<Skill> skills = skillService.getAllSkills();
+                List<Integer> selectedIds = (current != null) ? roleService.getRoleSkillIds(current.getRoleId()) : new ArrayList<>();
+                return new RoleEditorData(skills, selectedIds);
+            },
+            this,
+            data -> {
+                setBusy(false, "Ready");
+                openRoleEditorDialog(current, data.skills, data.selectedIds);
+            },
+            ex -> {
+                setBusy(false, "Ready");
+                showCatalogError(ex.getMessage());
+            }
+        );
+    }
+
+    private void openRoleEditorDialog(Role current, List<Skill> skills, List<Integer> selectedIds) {
         JTextField title = new JTextField(current == null ? "" : current.getRoleTitle());
         JComboBox<String> level = new JComboBox<>(new String[]{"Intern", "Entry Level", "Intermediate", "Experienced"});
         if (current != null) level.setSelectedItem(current.getExperienceLevel());
         JTextArea description = new JTextArea(current == null ? "" : nullToEmpty(current.getDescription()), 5, 28);
         description.setLineWrap(true);
         description.setWrapStyleWord(true);
-        List<Skill> skills;
-        List<Integer> selectedIds = new ArrayList<>();
-        try {
-            skills = AppDAO.getAllSkills();
-            if (current != null) selectedIds = AppDAO.getRoleSkillIds(current.getRoleId());
-        } catch (SQLException ex) { showCatalogError(ex); return; }
         JList<Skill> skillList = new JList<>(skills.toArray(new Skill[0]));
         skillList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         skillList.setVisibleRowCount(7);
-        List<Integer> currentSkillIds = selectedIds;
-        for (int i = 0; i < skills.size(); i++) if (currentSkillIds.contains(skills.get(i).getSkillId())) skillList.addSelectionInterval(i, i);
+        for (int i = 0; i < skills.size(); i++) {
+            if (selectedIds.contains(skills.get(i).getSkillId())) {
+                skillList.addSelectionInterval(i, i);
+            }
+        }
         JPanel form = new JPanel(new GridLayout(0, 2, 8, 8));
         form.add(new JLabel("Role title *")); form.add(title);
         form.add(new JLabel("Experience level")); form.add(level);
         form.add(new JLabel("Description")); form.add(new JScrollPane(description));
         form.add(new JLabel("Required skills (Ctrl/Shift-click)")); form.add(new JScrollPane(skillList));
         if (JOptionPane.showConfirmDialog(this, form, current == null ? "Add Role" : "Edit Role", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
-        if (title.getText().trim().isEmpty()) { JOptionPane.showMessageDialog(this, "Role title is required."); return; }
         Role value = new Role(current == null ? 0 : current.getRoleId(), title.getText().trim(), description.getText().trim(), (String) level.getSelectedItem());
         List<Integer> requiredSkillIds = new ArrayList<>();
-        for (Skill skill : skillList.getSelectedValuesList()) requiredSkillIds.add(skill.getSkillId());
-        try { AppDAO.saveRole(value, requiredSkillIds); refreshCatalogs(); }
-        catch (SQLException ex) { showCatalogError(ex); }
+        for (Skill skill : skillList.getSelectedValuesList()) {
+            requiredSkillIds.add(skill.getSkillId());
+        }
+
+        setBusy(true, "Saving role...");
+        AppExecutor.runWorker(
+            "save-role",
+            () -> {
+                roleService.saveRole(value, requiredSkillIds);
+                return null;
+            },
+            this,
+            res -> {
+                setBusy(false, "Role saved");
+                refreshCatalogsAsync();
+            },
+            ex -> {
+                setBusy(false, "Ready");
+                showCatalogError(ex.getMessage());
+            }
+        );
     }
 
     private void deleteCatalogSelection(boolean companyCatalog) {
@@ -622,30 +1334,77 @@ public class MainFrame extends JFrame {
         int id = ((Number) table.getValueAt(row, 0)).intValue();
         String label = String.valueOf(table.getValueAt(row, 1));
         if (JOptionPane.showConfirmDialog(this, "Remove '" + label + "' from the catalog? Records used by applications cannot be removed.", "Confirm Removal", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
-        try {
-            if (companyCatalog) AppDAO.deleteCompany(id); else AppDAO.deleteRole(id);
-            refreshCatalogs();
-        } catch (SQLException ex) { showCatalogError(ex); }
+
+        setBusy(true, "Removing from catalog...");
+        AppExecutor.runWorker(
+            "delete-catalog",
+            () -> {
+                if (companyCatalog) companyService.deleteCompany(id); else roleService.deleteRole(id);
+                return null;
+            },
+            this,
+            res -> {
+                setBusy(false, "Ready");
+                refreshCatalogsAsync();
+            },
+            ex -> {
+                setBusy(false, "Ready");
+                showCatalogError(ex.getMessage());
+            }
+        );
     }
 
     private String nullToEmpty(String value) { return value == null ? "" : value; }
 
-    private void showCatalogError(SQLException ex) {
-        String message = ex.getMessage() == null ? "Database error." : ex.getMessage();
-        String lower = message.toLowerCase();
-        if (lower.contains("duplicate entry")) message = "That company name or role title already exists.";
-        else if (lower.contains("foreign key")) message = "This record is already used by an application and cannot be removed.";
+    private void showCatalogError(String message) {
+        if (message == null) message = "Catalog error occurred.";
         JOptionPane.showMessageDialog(this, message, "Catalog Error", JOptionPane.ERROR_MESSAGE);
+    }
+
+    public void refreshCatalogsAsync() {
+        AppExecutor.runWorker(
+            "refresh-catalogs",
+            () -> {
+                List<Company> companies = companyService.getAllCompanies();
+                List<Role> roles = roleService.getAllRoles();
+                return new CatalogsData(companies, roles);
+            },
+            this,
+            data -> updateCatalogsUI(data.companies, data.roles),
+            error -> showCatalogError(error.getMessage())
+        );
     }
 
     private void refreshCatalogs() {
         try {
-            companiesModel.setRowCount(0);
-            for (Company c : AppDAO.getAllCompanies()) companiesModel.addRow(new Object[]{c.getCompanyId(), c.getCompanyName(), c.getIndustry(), c.getLocation(), c.getWebsite(), c.getContactEmail()});
-            rolesModel.setRowCount(0);
-            for (Role r : AppDAO.getAllRoles()) rolesModel.addRow(new Object[]{r.getRoleId(), r.getRoleTitle(), r.getExperienceLevel(), r.getDescription()});
-            refreshRolesAndCompanies();
-        } catch (SQLException ex) { showCatalogError(ex); }
+            List<Company> companies = companyService.getAllCompanies();
+            List<Role> roles = roleService.getAllRoles();
+            updateCatalogsUI(companies, roles);
+        } catch (DatabaseException ex) { showCatalogError(ex.getMessage()); }
+    }
+
+    private void updateCatalogsUI(List<Company> companies, List<Role> roles) {
+        companiesModel.setRowCount(0);
+        if (companies != null) {
+            for (Company c : companies) {
+                companiesModel.addRow(new Object[]{c.getCompanyId(), c.getCompanyName(), c.getIndustry(), c.getLocation(), c.getWebsite(), c.getContactEmail()});
+            }
+        }
+        rolesModel.setRowCount(0);
+        if (roles != null) {
+            for (Role r : roles) {
+                rolesModel.addRow(new Object[]{r.getRoleId(), r.getRoleTitle(), r.getExperienceLevel(), r.getDescription()});
+            }
+        }
+        gapRoleCombo.removeAllItems();
+        if (roles != null) {
+            for (Role r : roles) {
+                gapRoleCombo.addItem(r);
+            }
+            if (!roles.isEmpty() && currentGapResults == null) {
+                performSkillGapAnalysisAsync();
+            }
+        }
     }
 
     // =========================================================================
@@ -657,28 +1416,61 @@ public class MainFrame extends JFrame {
         refreshApplications();
         refreshSkills();
         refreshCertsAndProjects();
+        refreshRecommendations();
         refreshCatalogs();
+    }
+
+    public void refreshAllDataAsync() {
+        refreshDashboardAsync();
+        refreshApplicationsAsync();
+        refreshSkillsAsync();
+        refreshCertsAndProjectsAsync();
+        refreshRecommendationsAsync();
+        refreshCatalogsAsync();
+    }
+
+    public void refreshDashboardAsync() {
+        AppExecutor.runWorker(
+            "refresh-dashboard",
+            () -> {
+                DashboardStats stats = dashboardService.getDashboardStats(currentStudent.getStudentId());
+                List<Interview> upcoming = interviewService.getUpcomingInterviews(currentStudent.getStudentId());
+                return new DashboardData(stats, upcoming);
+            },
+            this,
+            data -> updateDashboardUI(data.stats, data.upcoming),
+            error -> System.err.println("Dashboard refresh error: " + error.getMessage())
+        );
     }
 
     private void refreshDashboard() {
         try {
-            Map<String, Integer> stats = AppDAO.getDashboardCounts(currentStudent.getStudentId());
-            totalAppsVal.setText(String.valueOf(stats.getOrDefault("Total", 0)));
-            int underReview = stats.getOrDefault("Applied", 0) + stats.getOrDefault("Shortlisted", 0);
-            underReviewVal.setText(String.valueOf(underReview));
-            interviewsVal.setText(String.valueOf(stats.getOrDefault("UpcomingInterviews", 0)));
-            selectedVal.setText(String.valueOf(stats.getOrDefault("Selected", 0)));
+            DashboardStats stats = dashboardService.getDashboardStats(currentStudent.getStudentId());
+            List<Interview> upcoming = interviewService.getUpcomingInterviews(currentStudent.getStudentId());
+            updateDashboardUI(stats, upcoming);
+        } catch (Exception e) {
+            System.err.println("Dashboard refresh error: " + e.getMessage());
+        }
+    }
 
-            // Status Breakdown
-            statusModel.setRowCount(0);
-            for (String key : new String[]{"Applied", "Shortlisted", "Interview", "Selected", "Rejected"}) {
-                statusModel.addRow(new Object[]{key, stats.getOrDefault(key, 0)});
-            }
+    private void updateDashboardUI(DashboardStats stats, List<Interview> upcoming) {
+        if (stats == null) return;
+        totalAppsVal.setText(String.valueOf(stats.getTotal()));
+        underReviewVal.setText(String.valueOf(stats.getUnderReview()));
+        interviewsVal.setText(String.valueOf(stats.getUpcomingInterviews()));
+        selectedVal.setText(String.valueOf(stats.getSelected()));
 
-            // Upcoming Interviews
-            upcomingInterviewsModel.setRowCount(0);
-            SimpleDateFormat sdf = new SimpleDateFormat("dd-MMM-yyyy HH:mm");
-            List<Interview> upcoming = AppDAO.getUpcomingInterviews(currentStudent.getStudentId());
+        // Status Breakdown
+        statusModel.setRowCount(0);
+        Map<String, Integer> counts = stats.asMap();
+        for (String key : new String[]{"Applied", "Shortlisted", "Interview", "Selected", "Rejected"}) {
+            statusModel.addRow(new Object[]{key, counts.getOrDefault(key, 0)});
+        }
+
+        // Upcoming Interviews
+        upcomingInterviewsModel.setRowCount(0);
+        SimpleDateFormat sdf = new SimpleDateFormat("dd-MMM-yyyy HH:mm");
+        if (upcoming != null) {
             for (Interview inv : upcoming) {
                 upcomingInterviewsModel.addRow(new Object[]{
                     sdf.format(inv.getInterviewDate()),
@@ -688,16 +1480,27 @@ public class MainFrame extends JFrame {
                     inv.getMode()
                 });
             }
-        } catch (SQLException e) {
-            System.err.println("Dashboard refresh error: " + e.getMessage());
         }
+    }
+
+    public void refreshApplicationsAsync() {
+        AppExecutor.runWorker(
+            "refresh-applications",
+            () -> applicationService.getApplications(currentStudent.getStudentId()),
+            this,
+            apps -> {
+                loadedApplications = apps;
+                filterApplicationsTable();
+            },
+            error -> JOptionPane.showMessageDialog(this, "Could not load applications: " + error.getMessage())
+        );
     }
 
     private void refreshApplications() {
         try {
-            loadedApplications = AppDAO.getApplications(currentStudent.getStudentId());
+            loadedApplications = applicationService.getApplications(currentStudent.getStudentId());
             filterApplicationsTable();
-        } catch (SQLException e) {
+        } catch (Exception e) {
             JOptionPane.showMessageDialog(this, "Could not load applications: " + e.getMessage());
         }
     }
@@ -724,16 +1527,40 @@ public class MainFrame extends JFrame {
         }
     }
 
+    public void refreshSkillsAsync() {
+        AppExecutor.runWorker(
+            "refresh-skills",
+            () -> {
+                List<Skill> master = skillService.getAllSkills();
+                List<Skill> studentSkills = skillService.getStudentSkills(currentStudent.getStudentId());
+                return new SkillsData(master, studentSkills);
+            },
+            this,
+            data -> updateSkillsUI(data.master, data.studentSkills),
+            error -> System.err.println("Skills refresh error: " + error.getMessage())
+        );
+    }
+
     private void refreshSkills() {
         try {
-            List<Skill> master = AppDAO.getAllSkills();
-            masterSkillsCombo.removeAllItems();
+            List<Skill> master = skillService.getAllSkills();
+            List<Skill> studentSkills = skillService.getStudentSkills(currentStudent.getStudentId());
+            updateSkillsUI(master, studentSkills);
+        } catch (Exception e) {
+            System.err.println("Skills refresh error: " + e.getMessage());
+        }
+    }
+
+    private void updateSkillsUI(List<Skill> master, List<Skill> studentSkills) {
+        masterSkillsCombo.removeAllItems();
+        if (master != null) {
             for (Skill s : master) {
                 masterSkillsCombo.addItem(s);
             }
+        }
 
-            List<Skill> studentSkills = AppDAO.getStudentSkills(currentStudent.getStudentId());
-            studentSkillsModel.setRowCount(0);
+        studentSkillsModel.setRowCount(0);
+        if (studentSkills != null) {
             for (Skill s : studentSkills) {
                 studentSkillsModel.addRow(new Object[]{
                     s.getSkillId(),
@@ -742,37 +1569,57 @@ public class MainFrame extends JFrame {
                     s.getProficiencyLevel()
                 });
             }
-        } catch (SQLException e) {
-            System.err.println("Skills refresh error: " + e.getMessage());
         }
+    }
+
+    public void refreshCertsAndProjectsAsync() {
+        AppExecutor.runWorker(
+            "refresh-certs-projects",
+            () -> {
+                List<Certification> certs = certificationService.getCertifications(currentStudent.getStudentId());
+                List<Project> projs = projectService.getProjects(currentStudent.getStudentId());
+                return new CertsAndProjectsData(certs, projs);
+            },
+            this,
+            data -> updateCertsAndProjectsUI(data.certs, data.projs),
+            error -> System.err.println("Cert/Project refresh error: " + error.getMessage())
+        );
     }
 
     private void refreshCertsAndProjects() {
         try {
-            List<Certification> certs = AppDAO.getCertifications(currentStudent.getStudentId());
-            certsModel.setRowCount(0);
+            List<Certification> certs = certificationService.getCertifications(currentStudent.getStudentId());
+            List<Project> projs = projectService.getProjects(currentStudent.getStudentId());
+            updateCertsAndProjectsUI(certs, projs);
+        } catch (Exception e) {
+            System.err.println("Cert/Project refresh error: " + e.getMessage());
+        }
+    }
+
+    private void updateCertsAndProjectsUI(List<Certification> certs, List<Project> projs) {
+        certsModel.setRowCount(0);
+        if (certs != null) {
             for (Certification c : certs) {
                 certsModel.addRow(new Object[]{c.getCertificationId(), c.getCertificateName(), c.getIssuingOrganization(), c.getIssueDate()});
             }
+        }
 
-            List<Project> projs = AppDAO.getProjects(currentStudent.getStudentId());
-            projectsModel.setRowCount(0);
+        projectsModel.setRowCount(0);
+        if (projs != null) {
             for (Project p : projs) {
                 projectsModel.addRow(new Object[]{p.getProjectId(), p.getTitle(), p.getTechnologiesUsed()});
             }
-        } catch (SQLException e) {
-            System.err.println("Cert/Project refresh error: " + e.getMessage());
         }
     }
 
     private void refreshRolesAndCompanies() {
         try {
-            List<Role> roles = AppDAO.getAllRoles();
+            List<Role> roles = roleService.getAllRoles();
             gapRoleCombo.removeAllItems();
             for (Role r : roles) {
                 gapRoleCombo.addItem(r);
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.err.println("Roles refresh error: " + e.getMessage());
         }
     }
@@ -781,44 +1628,135 @@ public class MainFrame extends JFrame {
     // SKILL GAP EXECUTION
     // =========================================================================
 
+    public void performSkillGapAnalysisAsync() {
+        Role selectedRole = (Role) gapRoleCombo.getSelectedItem();
+        if (selectedRole == null) return;
+
+        setBusy(true, "Analyzing skill gap for " + selectedRole.getRoleTitle() + "...");
+        final int roleId = selectedRole.getRoleId();
+        final String roleTitle = selectedRole.getRoleTitle();
+
+        AppExecutor.runWorker(
+            "skill-gap-analysis",
+            () -> skillGapService.analyzeSkillGap(currentStudent.getStudentId(), roleId),
+            this,
+            results -> {
+                setBusy(false, "Ready");
+                Role currentSel = (Role) gapRoleCombo.getSelectedItem();
+                if (currentSel != null && currentSel.getRoleId() != roleId) {
+                    return; // Stale result discard
+                }
+                currentGapResults = results;
+                updateSkillGapUI(results, roleTitle);
+            },
+            error -> {
+                setBusy(false, "Ready");
+                JOptionPane.showMessageDialog(this, "Error analyzing skill gap: " + error.getMessage(), "Database Error", JOptionPane.ERROR_MESSAGE);
+            }
+        );
+    }
+
     private void performSkillGapAnalysis() {
         Role selectedRole = (Role) gapRoleCombo.getSelectedItem();
         if (selectedRole == null) return;
 
         try {
-            currentGapResults = AppDAO.getSkillGapAnalysis(currentStudent.getStudentId(), selectedRole.getRoleId());
-            gapMatchedModel.setRowCount(0);
-            gapMissingModel.setRowCount(0);
-
-            int matchedCount = 0;
-            int totalRequired = currentGapResults.size();
-
-            for (SkillGapResult r : currentGapResults) {
-                if (r.isMatched()) {
-                    matchedCount++;
-                    gapMatchedModel.addRow(new Object[]{r.getSkillName(), r.getCategory(), r.getRequiredLevel(), r.getStudentLevel()});
-                } else {
-                    gapMissingModel.addRow(new Object[]{r.getSkillName(), r.getCategory(), r.getRequiredLevel(), "Not Possessed"});
-                }
-            }
-
-            int pct = totalRequired > 0 ? (int) Math.round(((double) matchedCount / totalRequired) * 100) : 0;
-            gapProgressBar.setValue(pct);
-            gapProgressBar.setString(pct + "% Match (" + matchedCount + " of " + totalRequired + " required skills met)");
-
-            if (pct >= 80) {
-                gapProgressBar.setForeground(new Color(39, 174, 96));
-                gapSummaryLabel.setText("High Readiness: You meet " + matchedCount + " of " + totalRequired + " competencies for " + selectedRole.getRoleTitle() + ".");
-            } else if (pct >= 50) {
-                gapProgressBar.setForeground(new Color(243, 156, 18));
-                gapSummaryLabel.setText("Moderate Match: You possess " + matchedCount + " of " + totalRequired + " skills. Review the missing skills below to prepare.");
-            } else {
-                gapProgressBar.setForeground(new Color(217, 83, 79));
-                gapSummaryLabel.setText("Skill Gap Detected: You possess " + matchedCount + " of " + totalRequired + " required skills. Target the missing skills below.");
-            }
-
-        } catch (SQLException e) {
+            currentGapResults = skillGapService.analyzeSkillGap(currentStudent.getStudentId(), selectedRole.getRoleId());
+            updateSkillGapUI(currentGapResults, selectedRole.getRoleTitle());
+        } catch (Exception e) {
             JOptionPane.showMessageDialog(this, "Error analyzing skill gap: " + e.getMessage(), "Database Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void updateSkillGapUI(List<SkillGapResult> results, String roleTitle) {
+        gapMatchedModel.setRowCount(0);
+        gapMissingModel.setRowCount(0);
+
+        if (skillGapService.isInsufficientRoleData(results)) {
+            gapProgressBar.setValue(0);
+            gapProgressBar.setString("Insufficient role data (0 requirements defined)");
+            gapProgressBar.setForeground(new Color(128, 128, 128));
+            gapSummaryLabel.setText("Insufficient role data: No skill requirements are defined for " + roleTitle + ".");
+            return;
+        }
+
+        int matchedCount = 0;
+        int totalRequired = results.size();
+
+        for (SkillGapResult r : results) {
+            String reqBenchmark = r.getRequiredLevel() + (r.isMandatory() ? " [Mandatory]" : " [Optional]");
+
+            if (r.isMatched()) {
+                matchedCount++;
+                gapMatchedModel.addRow(new Object[]{r.getSkillName(), r.getCategory(), reqBenchmark, r.getStudentLevel()});
+            } else if (r.isUpgradeNeeded()) {
+                int gap = r.getProficiencyGap();
+                String gapText = gap > 0 ? " (Gap: +" + gap + (gap == 1 ? " level" : " levels") + ")" : "";
+                String statusDesc = "Upgrade Needed: " + r.getStudentLevel() + " \u2192 " + r.getRequiredLevel() + gapText;
+                gapMissingModel.addRow(new Object[]{r.getSkillName(), r.getCategory(), reqBenchmark, statusDesc});
+            } else if (r.isInsufficientEvidence()) {
+                gapMissingModel.addRow(new Object[]{r.getSkillName(), r.getCategory(), reqBenchmark, "Insufficient Evidence (Unspecified Level)"});
+            } else {
+                gapMissingModel.addRow(new Object[]{r.getSkillName(), r.getCategory(), reqBenchmark, "Not Possessed (Missing)"});
+            }
+        }
+
+        int pct = skillGapService.calculateMatchPercentage(results);
+        gapProgressBar.setValue(pct);
+        gapProgressBar.setString(pct + "% Match (" + matchedCount + " of " + totalRequired + " required skills met)");
+
+        if (pct >= 80) {
+            gapProgressBar.setForeground(new Color(39, 174, 96));
+        } else if (pct >= 50) {
+            gapProgressBar.setForeground(new Color(243, 156, 18));
+        } else {
+            gapProgressBar.setForeground(new Color(217, 83, 79));
+        }
+        gapSummaryLabel.setText(skillGapService.getReadinessAssessment(pct, matchedCount, totalRequired, roleTitle));
+    }
+
+    private static class DashboardData {
+        final DashboardStats stats;
+        final List<Interview> upcoming;
+        DashboardData(DashboardStats stats, List<Interview> upcoming) {
+            this.stats = stats;
+            this.upcoming = upcoming;
+        }
+    }
+
+    private static class SkillsData {
+        final List<Skill> master;
+        final List<Skill> studentSkills;
+        SkillsData(List<Skill> master, List<Skill> studentSkills) {
+            this.master = master;
+            this.studentSkills = studentSkills;
+        }
+    }
+
+    private static class CertsAndProjectsData {
+        final List<Certification> certs;
+        final List<Project> projs;
+        CertsAndProjectsData(List<Certification> certs, List<Project> projs) {
+            this.certs = certs;
+            this.projs = projs;
+        }
+    }
+
+    private static class CatalogsData {
+        final List<Company> companies;
+        final List<Role> roles;
+        CatalogsData(List<Company> companies, List<Role> roles) {
+            this.companies = companies;
+            this.roles = roles;
+        }
+    }
+
+    private static class RoleEditorData {
+        final List<Skill> skills;
+        final List<Integer> selectedIds;
+        RoleEditorData(List<Skill> skills, List<Integer> selectedIds) {
+            this.skills = skills;
+            this.selectedIds = selectedIds;
         }
     }
 
@@ -834,24 +1772,49 @@ public class MainFrame extends JFrame {
             }
         }
         String skillName = (String) gapMissingModel.getValueAt(row, 0);
-        addSkillByName(skillName);
-    }
-
-    private void addSkillByName(String skillName) {
-        try {
-            List<Skill> all = AppDAO.getAllSkills();
-            for (Skill s : all) {
-                if (s.getSkillName().equalsIgnoreCase(skillName)) {
-                    AppDAO.addOrUpdateStudentSkill(currentStudent.getStudentId(), s.getSkillId(), "Intermediate");
-                    JOptionPane.showMessageDialog(this, "Successfully added '" + skillName + "' (Intermediate) to your profile!", "Skill Acquired", JOptionPane.INFORMATION_MESSAGE);
-                    refreshSkills();
-                    performSkillGapAnalysis();
-                    return;
+        String targetLevel = "Intermediate";
+        if (currentGapResults != null) {
+            for (SkillGapResult r : currentGapResults) {
+                if (r.getSkillName().equalsIgnoreCase(skillName)) {
+                    targetLevel = r.getRequiredLevel();
+                    break;
                 }
             }
-        } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this, "Error adding skill: " + e.getMessage());
         }
+        addSkillByNameAndLevel(skillName, targetLevel);
+    }
+
+    private void addSkillByNameAndLevel(String skillName, String targetLevel) {
+        setBusy(true, "Adding missing skill...");
+        AppExecutor.runWorker(
+            "add-missing-skill",
+            () -> {
+                List<Skill> all = skillService.getAllSkills();
+                for (Skill s : all) {
+                    if (s.getSkillName().equalsIgnoreCase(skillName)) {
+                        skillService.addOrUpdateStudentSkill(currentStudent.getStudentId(), s.getSkillId(), targetLevel);
+                        return s;
+                    }
+                }
+                return null;
+            },
+            this,
+            matchedSkill -> {
+                setBusy(false, "Ready");
+                if (matchedSkill != null) {
+                    JOptionPane.showMessageDialog(this, "Successfully saved '" + skillName + "' (" + targetLevel + ") to your profile!", "Skill Acquired", JOptionPane.INFORMATION_MESSAGE);
+                    refreshSkillsAsync();
+                    refreshDashboardAsync();
+                    performSkillGapAnalysisAsync();
+                } else {
+                    JOptionPane.showMessageDialog(this, "Skill '" + skillName + "' not found in catalog.", "Not Found", JOptionPane.WARNING_MESSAGE);
+                }
+            },
+            error -> {
+                setBusy(false, "Ready");
+                JOptionPane.showMessageDialog(this, "Error adding skill: " + error.getMessage(), "Database Error", JOptionPane.ERROR_MESSAGE);
+            }
+        );
     }
 
     private void addStudentSkill() {
@@ -859,14 +1822,40 @@ public class MainFrame extends JFrame {
         String prof = (String) proficiencyCombo.getSelectedItem();
         if (selected == null || prof == null) return;
 
-        try {
-            AppDAO.addOrUpdateStudentSkill(currentStudent.getStudentId(), selected.getSkillId(), prof);
-            refreshSkills();
-            refreshDashboard();
-            JOptionPane.showMessageDialog(this, "Skill '" + selected.getSkillName() + "' (" + prof + ") saved to your profile!", "Success", JOptionPane.INFORMATION_MESSAGE);
-        } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this, "Error saving skill: " + e.getMessage());
-        }
+        setBusy(true, "Saving skill...");
+        AppExecutor.runWorker(
+            "save-student-skill",
+            () -> {
+                skillService.addOrUpdateStudentSkill(currentStudent.getStudentId(), selected.getSkillId(), prof);
+                try {
+                    SkillEvidence ev = new SkillEvidence(
+                        0,
+                        currentStudent.getStudentId(),
+                        selected.getSkillId(),
+                        selected.getSkillName(),
+                        "Self-Reported",
+                        null,
+                        "Self-Reported Skill (" + prof + ")",
+                        "Self-declared competence level: " + prof + ".",
+                        "Unverified",
+                        null
+                    );
+                    skillService.addEvidence(ev);
+                } catch (Exception ignored) {}
+                return selected;
+            },
+            this,
+            savedSkill -> {
+                setBusy(false, "Skill saved");
+                refreshSkillsAsync();
+                refreshDashboardAsync();
+                JOptionPane.showMessageDialog(this, "Skill '" + savedSkill.getSkillName() + "' (" + prof + ") saved to your profile!", "Success", JOptionPane.INFORMATION_MESSAGE);
+            },
+            error -> {
+                setBusy(false, "Ready");
+                JOptionPane.showMessageDialog(this, "Error saving skill: " + error.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        );
     }
 
     private void removeStudentSkill() {
@@ -884,13 +1873,24 @@ public class MainFrame extends JFrame {
         String skillName = (String) studentSkillsModel.getValueAt(row, 1);
         int confirm = JOptionPane.showConfirmDialog(this, "Remove skill '" + skillName + "' from your profile?", "Confirm Removal", JOptionPane.YES_NO_OPTION);
         if (confirm == JOptionPane.YES_OPTION) {
-            try {
-                AppDAO.deleteStudentSkill(currentStudent.getStudentId(), skillId);
-                refreshSkills();
-                refreshDashboard();
-            } catch (SQLException e) {
-                JOptionPane.showMessageDialog(this, "Error: " + e.getMessage());
-            }
+            setBusy(true, "Removing skill...");
+            AppExecutor.runWorker(
+                "remove-student-skill",
+                () -> {
+                    skillService.removeStudentSkill(currentStudent.getStudentId(), skillId);
+                    return null;
+                },
+                this,
+                res -> {
+                    setBusy(false, "Skill removed");
+                    refreshSkillsAsync();
+                    refreshDashboardAsync();
+                },
+                error -> {
+                    setBusy(false, "Ready");
+                    JOptionPane.showMessageDialog(this, "Error: " + error.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            );
         }
     }
 
@@ -912,58 +1912,313 @@ public class MainFrame extends JFrame {
         return (int) appsModel.getValueAt(row, 0);
     }
 
-    private void showAddApplicationDialog() {
-        try {
-            List<Company> companies = AppDAO.getAllCompanies();
-            List<Role> roles = AppDAO.getAllRoles();
+    private void showEditProfileDialog() {
+        JTextField rollField = new JTextField(currentStudent.getRollNumber());
+        rollField.setEditable(false);
+        JTextField nameField = new JTextField(currentStudent.getFullName());
+        JTextField emailField = new JTextField(currentStudent.getEmail());
+        JTextField deptField = new JTextField(currentStudent.getDepartment() != null ? currentStudent.getDepartment() : "CSE");
+        JComboBox<Integer> yearCombo = new JComboBox<>(new Integer[]{1, 2, 3, 4});
+        yearCombo.setSelectedItem(currentStudent.getYearOfStudy() > 0 ? currentStudent.getYearOfStudy() : 2);
+        JTextField phoneField = new JTextField(currentStudent.getPhone() != null ? currentStudent.getPhone() : "");
 
-            if (companies.isEmpty() || roles.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Please ensure companies and roles are seeded in the database.", "Data Notice", JOptionPane.WARNING_MESSAGE);
+        JPanel panel = new JPanel(new GridLayout(6, 2, 8, 8));
+        panel.add(new JLabel("Roll Number (ID):"));
+        panel.add(rollField);
+        panel.add(new JLabel("Full Name *:"));
+        panel.add(nameField);
+        panel.add(new JLabel("Email Address *:"));
+        panel.add(emailField);
+        panel.add(new JLabel("Department *:"));
+        panel.add(deptField);
+        panel.add(new JLabel("Year of Study *:"));
+        panel.add(yearCombo);
+        panel.add(new JLabel("Phone:"));
+        panel.add(phoneField);
+
+        int res = JOptionPane.showConfirmDialog(this, panel, "Edit Student Profile", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (res == JOptionPane.OK_OPTION) {
+            String name = nameField.getText().trim();
+            String email = emailField.getText().trim();
+            String dept = deptField.getText().trim();
+            int year = (Integer) yearCombo.getSelectedItem();
+            String phone = phoneField.getText().trim();
+
+            if (!ValidationUtil.isValidName(name)) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid full name (letters, spaces, dots, hyphens only).", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (!ValidationUtil.isValidEmail(email)) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid email address.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (!ValidationUtil.isNonEmpty(dept)) {
+                JOptionPane.showMessageDialog(this, "Department cannot be blank.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (!ValidationUtil.isValidYearOfStudy(year)) {
+                JOptionPane.showMessageDialog(this, "Year of study must be between 1 and 4.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (!ValidationUtil.isValidPhone(phone)) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid phone number (10-15 digits) or leave it blank.", "Validation Error", JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
-            JPanel panel = new JPanel(new GridLayout(6, 2, 8, 8));
-            JComboBox<Company> compCombo = new JComboBox<>(companies.toArray(new Company[0]));
-            JComboBox<Role> roleCombo = new JComboBox<>(roles.toArray(new Role[0]));
-            JTextField stipendField = new JTextField("₹ 35,000 / mo");
-            JTextField deadlineField = new JTextField(new SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date(System.currentTimeMillis() + 86400000L * 30)));
-            JComboBox<String> statusCombo = new JComboBox<>(new String[]{"Applied", "Shortlisted", "Interview", "Selected"});
-            JTextField notesField = new JTextField("Submitted via campus recruitment drive.");
+            setBusy(true, "Updating profile...");
+            AppExecutor.runWorker(
+                "update-profile",
+                () -> {
+                    currentStudent.setFullName(name);
+                    currentStudent.setEmail(email);
+                    currentStudent.setDepartment(dept);
+                    currentStudent.setYearOfStudy(year);
+                    currentStudent.setPhone(phone.isEmpty() ? null : phone);
 
-            panel.add(new JLabel("Target Company:"));
-            panel.add(compCombo);
-            panel.add(new JLabel("Target Role:"));
-            panel.add(roleCombo);
-            panel.add(new JLabel("Application Deadline (YYYY-MM-DD):"));
-            panel.add(deadlineField);
-            panel.add(new JLabel("Initial Status:"));
-            panel.add(statusCombo);
-            panel.add(new JLabel("Expected Stipend:"));
-            panel.add(stipendField);
-            panel.add(new JLabel("Notes:"));
-            panel.add(notesField);
-
-            int result = JOptionPane.showConfirmDialog(this, panel, "Record New Internship Application", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-            if (result == JOptionPane.OK_OPTION) {
-                Company c = (Company) compCombo.getSelectedItem();
-                Role r = (Role) roleCombo.getSelectedItem();
-                Date appDate = new Date(System.currentTimeMillis());
-
-                Date deadline;
-                try {
-                    deadline = Date.valueOf(deadlineField.getText().trim());
-                } catch (Exception ex) {
-                    deadline = new Date(System.currentTimeMillis() + 86400000L * 30);
+                    studentService.updateProfile(currentStudent, currentStudent.getStudentId());
+                    return null;
+                },
+                this,
+                resUpdate -> {
+                    setBusy(false, "Profile updated");
+                    updateWelcomeLabelText();
+                    refreshDashboardAsync();
+                    JOptionPane.showMessageDialog(this, "Profile updated successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
+                },
+                ex -> {
+                    setBusy(false, "Ready");
+                    if (ex instanceof UnauthorizedAccessException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                    } else if (ex instanceof DuplicateEntityException) {
+                        JOptionPane.showMessageDialog(this, "The email address '" + email + "' is already registered to another account.", "Duplicate Email", JOptionPane.ERROR_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Error updating profile: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Error", JOptionPane.ERROR_MESSAGE);
+                    }
                 }
+            );
+        }
+    }
 
-                Application app = new Application(0, currentStudent.getStudentId(), c.getCompanyId(), r.getRoleId(), appDate, deadline, (String) statusCombo.getSelectedItem(), stipendField.getText().trim(), notesField.getText().trim());
-                AppDAO.addApplication(app);
-                refreshApplications();
-                refreshDashboard();
-                JOptionPane.showMessageDialog(this, "Application recorded successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
+    private void showAddApplicationDialog() {
+        showAddApplicationDialog(0, 0);
+    }
+
+    private void showAddApplicationDialog(int preselectedCompanyId, int preselectedRoleId) {
+        setBusy(true, "Preparing application form...");
+        AppExecutor.runWorker(
+            "load-companies-roles",
+            () -> {
+                List<Company> companies = companyService.getAllCompanies();
+                List<Role> roles = roleService.getAllRoles();
+                return new CatalogsData(companies, roles);
+            },
+            this,
+            data -> {
+                setBusy(false, "Ready");
+                openAddApplicationDialog(data.companies, data.roles, preselectedCompanyId, preselectedRoleId);
+            },
+            ex -> {
+                setBusy(false, "Ready");
+                JOptionPane.showMessageDialog(this, "Error preparing form: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
-        } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Error adding application: " + ex.getMessage());
+        );
+    }
+
+    private void openAddApplicationDialog(List<Company> companies, List<Role> roles, int preselectedCompanyId, int preselectedRoleId) {
+        if (companies == null || companies.isEmpty() || roles == null || roles.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Please ensure companies and roles are seeded in the database.", "Data Notice", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JPanel panel = new JPanel(new GridLayout(6, 2, 8, 8));
+        JComboBox<Company> compCombo = new JComboBox<>(companies.toArray(new Company[0]));
+        JComboBox<Role> roleCombo = new JComboBox<>(roles.toArray(new Role[0]));
+
+        if (preselectedCompanyId > 0) {
+            for (int i = 0; i < compCombo.getItemCount(); i++) {
+                if (compCombo.getItemAt(i).getCompanyId() == preselectedCompanyId) {
+                    compCombo.setSelectedIndex(i);
+                    break;
+                }
+            }
+        }
+
+        if (preselectedRoleId > 0) {
+            for (int i = 0; i < roleCombo.getItemCount(); i++) {
+                if (roleCombo.getItemAt(i).getRoleId() == preselectedRoleId) {
+                    roleCombo.setSelectedIndex(i);
+                    break;
+                }
+            }
+        }
+
+        JTextField stipendField = new JTextField("₹ 35,000 / mo");
+        JTextField deadlineField = new JTextField(new SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date(System.currentTimeMillis() + 86400000L * 30)));
+        JComboBox<String> statusCombo = new JComboBox<>(new String[]{"Applied", "Shortlisted", "Interview", "Selected"});
+        JTextField notesField = new JTextField("Submitted via campus recruitment drive.");
+
+        panel.add(new JLabel("Target Company:"));
+        panel.add(compCombo);
+        panel.add(new JLabel("Target Role:"));
+        panel.add(roleCombo);
+        panel.add(new JLabel("Application Deadline (YYYY-MM-DD):"));
+        panel.add(deadlineField);
+        panel.add(new JLabel("Initial Status:"));
+        panel.add(statusCombo);
+        panel.add(new JLabel("Expected Stipend:"));
+        panel.add(stipendField);
+        panel.add(new JLabel("Notes:"));
+        panel.add(notesField);
+
+        int result = JOptionPane.showConfirmDialog(this, panel, "Record New Internship Application", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result == JOptionPane.OK_OPTION) {
+            Company c = (Company) compCombo.getSelectedItem();
+            Role r = (Role) roleCombo.getSelectedItem();
+            if (c == null || r == null) {
+                JOptionPane.showMessageDialog(this, "Please select both a company and a role.", "Selection Missing", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            String deadlineText = deadlineField.getText().trim();
+            if (!ValidationUtil.isValidDate(deadlineText)) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid deadline in YYYY-MM-DD format (valid calendar date).", "Invalid Date", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            String stipendText = stipendField.getText().trim();
+            if (ValidationUtil.hasNegativeStipend(stipendText)) {
+                JOptionPane.showMessageDialog(this, "Stipend amount cannot be negative.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            Date appDate = new Date(System.currentTimeMillis());
+            Date deadline = ValidationUtil.parseDate(deadlineText);
+            String status = (String) statusCombo.getSelectedItem();
+            String notes = notesField.getText().trim();
+
+            Application app = new Application(0, currentStudent.getStudentId(), c.getCompanyId(), r.getRoleId(), appDate, deadline, status, stipendText, notes);
+            setBusy(true, "Recording application...");
+            AppExecutor.runWorker(
+                "submit-application",
+                () -> {
+                    applicationService.submitApplication(app);
+                    return null;
+                },
+                this,
+                res -> {
+                    setBusy(false, "Application saved");
+                    refreshApplicationsAsync();
+                    refreshDashboardAsync();
+                    refreshRecommendationsAsync();
+                    JOptionPane.showMessageDialog(this, "Application recorded successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
+                },
+                ex -> {
+                    setBusy(false, "Ready");
+                    if (ex instanceof DuplicateEntityException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Duplicate Application", JOptionPane.WARNING_MESSAGE);
+                    } else if (ex instanceof ValidationException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Validation Error", JOptionPane.WARNING_MESSAGE);
+                    } else if (ex instanceof DatabaseException) {
+                        JOptionPane.showMessageDialog(this, "Database error adding application: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Error adding application: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            );
+        }
+    }
+
+    private void showEditApplicationDialog() {
+        int appId = getSelectedApplicationId();
+        if (appId == -1) return;
+
+        Application target = null;
+        if (loadedApplications != null) {
+            for (Application a : loadedApplications) {
+                if (a.getApplicationId() == appId) {
+                    target = a;
+                    break;
+                }
+            }
+        }
+        if (target == null) {
+            JOptionPane.showMessageDialog(this, "Selected application could not be found.", "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        JPanel panel = new JPanel(new GridLayout(5, 2, 8, 8));
+        JTextField compField = new JTextField(target.getCompanyName());
+        compField.setEditable(false);
+        JTextField roleField = new JTextField(target.getRoleTitle());
+        roleField.setEditable(false);
+
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        JTextField deadlineField = new JTextField(target.getDeadline() != null ? sdf.format(target.getDeadline()) : "");
+        JComboBox<String> statusCombo = new JComboBox<>(new String[]{"Applied", "Shortlisted", "Interview", "Selected", "Rejected"});
+        statusCombo.setSelectedItem(target.getStatus());
+        JTextField stipendField = new JTextField(target.getStipend() != null ? target.getStipend() : "");
+        JTextField notesField = new JTextField(target.getNotes() != null ? target.getNotes() : "");
+
+        panel.add(new JLabel("Company:"));
+        panel.add(compField);
+        panel.add(new JLabel("Role:"));
+        panel.add(roleField);
+        panel.add(new JLabel("Deadline (YYYY-MM-DD):"));
+        panel.add(deadlineField);
+        panel.add(new JLabel("Application Status:"));
+        panel.add(statusCombo);
+        panel.add(new JLabel("Stipend:"));
+        panel.add(stipendField);
+        panel.add(new JLabel("Notes:"));
+        panel.add(notesField);
+
+        int result = JOptionPane.showConfirmDialog(this, panel, "Edit Application Details", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result == JOptionPane.OK_OPTION) {
+            final Application appToUpdate = target;
+            String deadlineText = deadlineField.getText().trim();
+            Date deadline = null;
+            if (!deadlineText.isEmpty()) {
+                if (!ValidationUtil.isValidDate(deadlineText)) {
+                    JOptionPane.showMessageDialog(this, "Please enter a valid deadline in YYYY-MM-DD format.", "Invalid Date", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                deadline = ValidationUtil.parseDate(deadlineText);
+            }
+
+            String stipendText = stipendField.getText().trim();
+            if (ValidationUtil.hasNegativeStipend(stipendText)) {
+                JOptionPane.showMessageDialog(this, "Stipend amount cannot be negative.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            appToUpdate.setDeadline(deadline);
+            appToUpdate.setStatus((String) statusCombo.getSelectedItem());
+            appToUpdate.setStipend(stipendText);
+            appToUpdate.setNotes(notesField.getText().trim());
+
+            setBusy(true, "Updating application...");
+            AppExecutor.runWorker(
+                "update-application",
+                () -> {
+                    applicationService.updateApplication(appToUpdate, currentStudent.getStudentId());
+                    return null;
+                },
+                this,
+                res -> {
+                    setBusy(false, "Application updated");
+                    refreshApplicationsAsync();
+                    refreshDashboardAsync();
+                    JOptionPane.showMessageDialog(this, "Application updated successfully!", "Saved", JOptionPane.INFORMATION_MESSAGE);
+                },
+                ex -> {
+                    setBusy(false, "Ready");
+                    if (ex instanceof UnauthorizedAccessException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Error updating application: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Database Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            );
         }
     }
 
@@ -985,15 +2240,32 @@ public class MainFrame extends JFrame {
 
         int result = JOptionPane.showConfirmDialog(this, p, "Update Application Status", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result == JOptionPane.OK_OPTION) {
-            try {
-                String newStatus = (String) combo.getSelectedItem();
-                AppDAO.updateApplicationStatus(appId, newStatus);
-                refreshApplications();
-                refreshDashboard();
-                JOptionPane.showMessageDialog(this, "Status updated to '" + newStatus + "'!", "Updated", JOptionPane.INFORMATION_MESSAGE);
-            } catch (SQLException e) {
-                JOptionPane.showMessageDialog(this, "Error updating status: " + e.getMessage());
-            }
+            String newStatus = (String) combo.getSelectedItem();
+            setBusy(true, "Updating status...");
+            AppExecutor.runWorker(
+                "update-status",
+                () -> {
+                    applicationService.updateStatus(appId, currentStudent.getStudentId(), newStatus);
+                    return newStatus;
+                },
+                this,
+                resStatus -> {
+                    setBusy(false, "Status updated");
+                    refreshApplicationsAsync();
+                    refreshDashboardAsync();
+                    JOptionPane.showMessageDialog(this, "Status updated to '" + resStatus + "'!", "Updated", JOptionPane.INFORMATION_MESSAGE);
+                },
+                ex -> {
+                    setBusy(false, "Ready");
+                    if (ex instanceof UnauthorizedAccessException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                    } else if (ex instanceof ValidationException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Validation Error", JOptionPane.WARNING_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Error updating status: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            );
         }
     }
 
@@ -1024,51 +2296,187 @@ public class MainFrame extends JFrame {
 
         int result = JOptionPane.showConfirmDialog(this, panel, "Schedule Interview", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result == JOptionPane.OK_OPTION) {
-            try {
-                String rawDate = dateField.getText().trim();
-                if (!rawDate.contains(":")) rawDate += " 10:00:00";
-                Timestamp ts = Timestamp.valueOf(rawDate);
-
-                Interview inv = new Interview(0, appId, ts, (String) roundCombo.getSelectedItem(), (String) modeCombo.getSelectedItem(), "Scheduled", "Pending", feedbackField.getText());
-                AppDAO.addInterview(inv);
-                AppDAO.updateApplicationStatus(appId, "Interview");
-                refreshApplications();
-                refreshDashboard();
-                JOptionPane.showMessageDialog(this, "Interview scheduled for " + company + "!", "Scheduled", JOptionPane.INFORMATION_MESSAGE);
-            } catch (Exception e) {
-                JOptionPane.showMessageDialog(this, "Date format error. Please use: YYYY-MM-DD HH:MM:SS\n" + e.getMessage(), "Input Error", JOptionPane.ERROR_MESSAGE);
+            String rawDate = dateField.getText().trim();
+            if (!rawDate.contains(":")) rawDate += " 10:00:00";
+            if (!ValidationUtil.isValidTimestamp(rawDate)) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid date and time (format: YYYY-MM-DD HH:MM:SS or YYYY-MM-DD HH:MM).", "Invalid Date/Time", JOptionPane.WARNING_MESSAGE);
+                return;
             }
+            Timestamp ts = ValidationUtil.parseTimestamp(rawDate);
+            Interview inv = new Interview(0, appId, ts, (String) roundCombo.getSelectedItem(), (String) modeCombo.getSelectedItem(), "Scheduled", "Pending", feedbackField.getText().trim());
+
+            setBusy(true, "Scheduling interview...");
+            AppExecutor.runWorker(
+                "schedule-interview",
+                () -> {
+                    interviewService.scheduleInterview(inv, currentStudent.getStudentId());
+                    return null;
+                },
+                this,
+                res -> {
+                    setBusy(false, "Interview scheduled");
+                    refreshApplicationsAsync();
+                    refreshDashboardAsync();
+                    JOptionPane.showMessageDialog(this, "Interview scheduled for " + company + "!", "Scheduled", JOptionPane.INFORMATION_MESSAGE);
+                },
+                ex -> {
+                    setBusy(false, "Ready");
+                    if (ex instanceof UnauthorizedAccessException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                    } else if (ex instanceof DuplicateEntityException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Duplicate Record", JOptionPane.WARNING_MESSAGE);
+                    } else if (ex instanceof ValidationException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Validation Error", JOptionPane.WARNING_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Error scheduling interview: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Input Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            );
         }
     }
 
     private void showViewInterviewsDialog() {
-        try {
-            List<Interview> interviews = AppDAO.getInterviews(currentStudent.getStudentId());
-            String[] cols = {"ID", "Company", "Role", "Date & Time", "Round", "Mode", "Status", "Outcome"};
-            DefaultTableModel m = new DefaultTableModel(cols, 0) {
-                @Override public boolean isCellEditable(int r, int c) { return false; }
-            };
-            SimpleDateFormat sdf = new SimpleDateFormat("dd-MMM-yyyy HH:mm");
-            for (Interview i : interviews) {
-                m.addRow(new Object[]{
-                    i.getInterviewId(),
-                    i.getCompanyName(),
-                    i.getRoleTitle(),
-                    sdf.format(i.getInterviewDate()),
-                    i.getRoundType(),
-                    i.getMode(),
-                    i.getStatus(),
-                    i.getOutcome()
-                });
+        JDialog dlg = new JDialog(this, "All Scheduled & Logged Interviews", true);
+        dlg.setSize(850, 480);
+        dlg.setLocationRelativeTo(this);
+        dlg.setLayout(new BorderLayout(10, 10));
+
+        String[] cols = {"ID", "Company", "Role", "Date & Time", "Round", "Mode", "Status", "Outcome"};
+        DefaultTableModel m = new DefaultTableModel(cols, 0) {
+            @Override public boolean isCellEditable(int r, int c) { return false; }
+        };
+        JTable t = new JTable(m);
+        t.setRowHeight(26);
+        t.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm");
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
+        JButton updateOutcomeBtn = createStyledButton("Update Outcome / Status", new Color(24, 100, 180), Color.WHITE);
+        JButton deleteBtn = createStyledButton("Delete Interview", new Color(217, 83, 79), Color.WHITE);
+        JButton closeBtn = new JButton("Close");
+
+        Runnable loadData = () -> {
+            AppExecutor.runWorker(
+                "load-interviews-dialog",
+                () -> interviewService.getInterviews(currentStudent.getStudentId()),
+                dlg,
+                interviews -> {
+                    m.setRowCount(0);
+                    for (Interview i : interviews) {
+                        m.addRow(new Object[]{
+                            i.getInterviewId(),
+                            i.getCompanyName(),
+                            i.getRoleTitle(),
+                            sdf.format(i.getInterviewDate()),
+                            i.getRoundType(),
+                            i.getMode(),
+                            i.getStatus(),
+                            i.getOutcome()
+                        });
+                    }
+                },
+                err -> JOptionPane.showMessageDialog(dlg, "Error loading interviews: " + err.getMessage()),
+                updateOutcomeBtn, deleteBtn
+            );
+        };
+        loadData.run();
+
+        updateOutcomeBtn.addActionListener(e -> {
+            int sel = t.getSelectedRow();
+            if (sel < 0) {
+                JOptionPane.showMessageDialog(dlg, "Please select an interview first.");
+                return;
             }
-            JTable t = new JTable(m);
-            t.setRowHeight(26);
-            JScrollPane sp = new JScrollPane(t);
-            sp.setPreferredSize(new Dimension(750, 320));
-            JOptionPane.showMessageDialog(this, sp, "All Scheduled & Logged Interviews", JOptionPane.PLAIN_MESSAGE);
-        } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this, "Error: " + e.getMessage());
-        }
+            int interviewId = (int) m.getValueAt(sel, 0);
+            String currentStatus = (String) m.getValueAt(sel, 6);
+            String currentOutcome = (String) m.getValueAt(sel, 7);
+
+            JComboBox<String> stCombo = new JComboBox<>(new String[]{"Scheduled", "Completed", "Cancelled", "Rescheduled"});
+            stCombo.setSelectedItem(currentStatus);
+            JComboBox<String> outCombo = new JComboBox<>(new String[]{"Pending", "Passed", "Failed"});
+            outCombo.setSelectedItem(currentOutcome);
+            JTextField fbField = new JTextField();
+
+            JPanel p = new JPanel(new GridLayout(3, 2, 8, 8));
+            p.add(new JLabel("Interview Status:"));
+            p.add(stCombo);
+            p.add(new JLabel("Outcome:"));
+            p.add(outCombo);
+            p.add(new JLabel("Feedback / Notes:"));
+            p.add(fbField);
+
+            if (JOptionPane.showConfirmDialog(dlg, p, "Update Interview Outcome", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+                String newSt = (String) stCombo.getSelectedItem();
+                String newOut = (String) outCombo.getSelectedItem();
+                String fb = fbField.getText().trim();
+                AppExecutor.runWorker(
+                    "update-interview-outcome",
+                    () -> {
+                        interviewService.updateInterviewOutcome(interviewId, currentStudent.getStudentId(), newSt, newOut, fb);
+                        return null;
+                    },
+                    dlg,
+                    res -> {
+                        loadData.run();
+                        refreshDashboardAsync();
+                    },
+                    ex -> {
+                        if (ex instanceof UnauthorizedAccessException) {
+                            JOptionPane.showMessageDialog(dlg, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                        } else if (ex instanceof ValidationException) {
+                            JOptionPane.showMessageDialog(dlg, ex.getMessage(), "Validation Error", JOptionPane.WARNING_MESSAGE);
+                        } else {
+                            JOptionPane.showMessageDialog(dlg, "Error updating interview: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Error", JOptionPane.ERROR_MESSAGE);
+                        }
+                    },
+                    updateOutcomeBtn, deleteBtn
+                );
+            }
+        });
+
+        deleteBtn.addActionListener(e -> {
+            int sel = t.getSelectedRow();
+            if (sel < 0) {
+                JOptionPane.showMessageDialog(dlg, "Please select an interview to delete.");
+                return;
+            }
+            int interviewId = (int) m.getValueAt(sel, 0);
+            String company = (String) m.getValueAt(sel, 1);
+            String round = (String) m.getValueAt(sel, 4);
+
+            if (JOptionPane.showConfirmDialog(dlg, "Delete interview (" + company + " - " + round + ")?", "Confirm Deletion", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+                AppExecutor.runWorker(
+                    "delete-interview",
+                    () -> {
+                        interviewService.deleteInterview(interviewId, currentStudent.getStudentId());
+                        return null;
+                    },
+                    dlg,
+                    res -> {
+                        loadData.run();
+                        refreshDashboardAsync();
+                    },
+                    ex -> {
+                        if (ex instanceof UnauthorizedAccessException) {
+                            JOptionPane.showMessageDialog(dlg, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                        } else {
+                            JOptionPane.showMessageDialog(dlg, "Error deleting interview: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Error", JOptionPane.ERROR_MESSAGE);
+                        }
+                    },
+                    updateOutcomeBtn, deleteBtn
+                );
+            }
+        });
+
+        closeBtn.addActionListener(e -> dlg.dispose());
+
+        btnPanel.add(updateOutcomeBtn);
+        btnPanel.add(deleteBtn);
+        btnPanel.add(closeBtn);
+
+        dlg.add(new JScrollPane(t), BorderLayout.CENTER);
+        dlg.add(btnPanel, BorderLayout.SOUTH);
+        dlg.setVisible(true);
     }
 
     private void deleteSelectedApplication() {
@@ -1081,14 +2489,29 @@ public class MainFrame extends JFrame {
 
         int confirm = JOptionPane.showConfirmDialog(this, "Are you sure you want to delete application for " + company + " (" + role + ")?", "Confirm Deletion", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (confirm == JOptionPane.YES_OPTION) {
-            try {
-                AppDAO.deleteApplication(appId);
-                refreshApplications();
-                refreshDashboard();
-                JOptionPane.showMessageDialog(this, "Application deleted successfully.");
-            } catch (SQLException e) {
-                JOptionPane.showMessageDialog(this, "Error deleting application: " + e.getMessage());
-            }
+            setBusy(true, "Deleting application...");
+            AppExecutor.runWorker(
+                "delete-application",
+                () -> {
+                    applicationService.deleteApplication(appId, currentStudent.getStudentId());
+                    return null;
+                },
+                this,
+                res -> {
+                    setBusy(false, "Application deleted");
+                    refreshApplicationsAsync();
+                    refreshDashboardAsync();
+                    JOptionPane.showMessageDialog(this, "Application deleted successfully.");
+                },
+                ex -> {
+                    setBusy(false, "Ready");
+                    if (ex instanceof UnauthorizedAccessException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Error deleting application: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            );
         }
     }
 
@@ -1099,25 +2522,549 @@ public class MainFrame extends JFrame {
         JTextField dateField = new JTextField(new SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date()));
         JTextField credField = new JTextField();
 
-        panel.add(new JLabel("Certification Name:"));
+        panel.add(new JLabel("Certification Name *:"));
         panel.add(nameField);
-        panel.add(new JLabel("Issuing Organization:"));
+        panel.add(new JLabel("Issuing Organization *:"));
         panel.add(orgField);
-        panel.add(new JLabel("Issue Date (YYYY-MM-DD):"));
+        panel.add(new JLabel("Issue Date (YYYY-MM-DD) *:"));
         panel.add(dateField);
         panel.add(new JLabel("Credential ID:"));
         panel.add(credField);
 
         int res = JOptionPane.showConfirmDialog(this, panel, "Add Certification", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-        if (res == JOptionPane.OK_OPTION && !nameField.getText().trim().isEmpty()) {
-            try {
-                Date d = Date.valueOf(dateField.getText().trim());
-                Certification c = new Certification(0, currentStudent.getStudentId(), nameField.getText().trim(), orgField.getText().trim(), d, credField.getText().trim());
-                AppDAO.addCertification(c);
-                refreshCertsAndProjects();
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "Error adding certification: " + ex.getMessage());
+        if (res == JOptionPane.OK_OPTION) {
+            String name = nameField.getText().trim();
+            String org = orgField.getText().trim();
+            String dateStr = dateField.getText().trim();
+
+            if (!ValidationUtil.isNonEmpty(name)) {
+                JOptionPane.showMessageDialog(this, "Certification Name is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
             }
+            if (!ValidationUtil.isNonEmpty(org)) {
+                JOptionPane.showMessageDialog(this, "Issuing Organization is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (!ValidationUtil.isValidDate(dateStr)) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid issue date in YYYY-MM-DD format.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            Date d = ValidationUtil.parseDate(dateStr);
+            Certification c = new Certification(0, currentStudent.getStudentId(), name, org, d, credField.getText().trim());
+
+            setBusy(true, "Searching skill suggestions...");
+            AppExecutor.runWorker(
+                "find-cert-suggestions",
+                () -> {
+                    List<CertificationSkillMapping> suggestions = certificationService.findSuggestedSkills(name);
+                    List<Skill> allSkills = skillService.getAllSkills();
+                    return new CertInitData(suggestions, allSkills);
+                },
+                this,
+                data -> {
+                    setBusy(false, "Ready");
+                    showReviewCertificationSkillsDialog(c, data.suggestions, data.allSkills);
+                },
+                ex -> {
+                    setBusy(false, "Ready");
+                    showReviewCertificationSkillsDialog(c, new ArrayList<>(), new ArrayList<>());
+                }
+            );
+        }
+    }
+
+    private void showReviewCertificationSkillsDialog(Certification cert, List<CertificationSkillMapping> suggestions) {
+        showReviewCertificationSkillsDialog(cert, suggestions, null);
+    }
+
+    private void showReviewCertificationSkillsDialog(Certification cert, List<CertificationSkillMapping> suggestions, List<Skill> allSkills) {
+        JDialog reviewDialog = new JDialog(this, "Review & Map Skills: " + cert.getCertificateName(), true);
+        reviewDialog.setLayout(new BorderLayout(10, 10));
+        reviewDialog.setSize(750, 480);
+        reviewDialog.setLocationRelativeTo(this);
+
+        JPanel mainPanel = new JPanel(new BorderLayout(8, 8));
+        mainPanel.setBorder(new EmptyBorder(12, 12, 12, 12));
+
+        // Header
+        JPanel headerPanel = new JPanel(new GridLayout(2, 1, 4, 4));
+        JLabel titleLbl = new JLabel("Certification: " + cert.getCertificateName() + " (" + cert.getIssuingOrganization() + ")");
+        titleLbl.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        JLabel infoLbl;
+        if (suggestions != null && !suggestions.isEmpty()) {
+            infoLbl = new JLabel("Found " + suggestions.size() + " verified skill mappings from curriculum catalog. Review, modify, or add additional skills:");
+        } else {
+            infoLbl = new JLabel("No pre-configured skills found in the catalog. You may manually associate competencies or save without skills:");
+        }
+        infoLbl.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        infoLbl.setForeground(new Color(90, 95, 105));
+        headerPanel.add(titleLbl);
+        headerPanel.add(infoLbl);
+        mainPanel.add(headerPanel, BorderLayout.NORTH);
+
+        // Table Model for reviewed skills
+        DefaultTableModel reviewModel = new DefaultTableModel(
+            new Object[]{"Include", "Skill ID", "Skill Name", "Learning Outcome / Competency", "Assessed Proficiency"}, 0
+        ) {
+            @Override
+            public Class<?> getColumnClass(int col) {
+                if (col == 0) return Boolean.class;
+                if (col == 1) return Integer.class;
+                return String.class;
+            }
+            @Override
+            public boolean isCellEditable(int row, int col) {
+                return col == 0 || col == 3 || col == 4;
+            }
+        };
+
+        if (suggestions != null) {
+            for (CertificationSkillMapping m : suggestions) {
+                reviewModel.addRow(new Object[]{
+                    Boolean.TRUE,
+                    m.getSkillId(),
+                    m.getSkillName(),
+                    m.getLearningOutcome(),
+                    m.getSuggestedProficiency() != null ? m.getSuggestedProficiency() : "Intermediate"
+                });
+            }
+        }
+
+        JTable reviewTable = new JTable(reviewModel);
+        reviewTable.setRowHeight(28);
+        reviewTable.getColumnModel().getColumn(0).setPreferredWidth(60);
+        reviewTable.getColumnModel().getColumn(1).setPreferredWidth(50);
+        reviewTable.getColumnModel().getColumn(2).setPreferredWidth(130);
+        reviewTable.getColumnModel().getColumn(3).setPreferredWidth(280);
+        reviewTable.getColumnModel().getColumn(4).setPreferredWidth(120);
+
+        JComboBox<String> levelCombo = new JComboBox<>(new String[]{"Beginner", "Intermediate", "Advanced", "Expert"});
+        reviewTable.getColumnModel().getColumn(4).setCellEditor(new DefaultCellEditor(levelCombo));
+
+        mainPanel.add(new JScrollPane(reviewTable), BorderLayout.CENTER);
+
+        // Bottom panel: manual add + action buttons
+        JPanel bottomContainer = new JPanel(new BorderLayout(5, 5));
+
+        JPanel manualAddPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        manualAddPanel.setBorder(BorderFactory.createTitledBorder("Add Competency Manually"));
+        JComboBox<Skill> addSkillCombo = new JComboBox<>();
+        if (allSkills != null) {
+            for (Skill s : allSkills) {
+                addSkillCombo.addItem(s);
+            }
+        } else {
+            try {
+                for (Skill s : skillService.getAllSkills()) {
+                    addSkillCombo.addItem(s);
+                }
+            } catch (Exception ignored) {}
+        }
+        JComboBox<String> addLevelCombo = new JComboBox<>(new String[]{"Beginner", "Intermediate", "Advanced", "Expert"});
+        addLevelCombo.setSelectedItem("Intermediate");
+        JTextField addOutcomeField = new JTextField("Practical coursework & certification evaluation", 20);
+        JButton addManualBtn = new JButton("+ Add Skill");
+
+        addManualBtn.addActionListener(ev -> {
+            Skill sel = (Skill) addSkillCombo.getSelectedItem();
+            if (sel == null) return;
+            for (int r = 0; r < reviewModel.getRowCount(); r++) {
+                int sid = (int) reviewModel.getValueAt(r, 1);
+                if (sid == sel.getSkillId()) {
+                    JOptionPane.showMessageDialog(reviewDialog, "Skill '" + sel.getSkillName() + "' is already in the review list.", "Duplicate Skill", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+            }
+            reviewModel.addRow(new Object[]{
+                Boolean.TRUE,
+                sel.getSkillId(),
+                sel.getSkillName(),
+                addOutcomeField.getText().trim(),
+                addLevelCombo.getSelectedItem()
+            });
+        });
+
+        manualAddPanel.add(new JLabel("Skill:"));
+        manualAddPanel.add(addSkillCombo);
+        manualAddPanel.add(new JLabel("Level:"));
+        manualAddPanel.add(addLevelCombo);
+        manualAddPanel.add(new JLabel("Outcome:"));
+        manualAddPanel.add(addOutcomeField);
+        manualAddPanel.add(addManualBtn);
+        bottomContainer.add(manualAddPanel, BorderLayout.NORTH);
+
+        // Action Buttons
+        JPanel actionBtnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 6));
+        JButton saveBtn = createStyledButton("Confirm & Save Certification", new Color(24, 100, 180), Color.WHITE);
+        JButton saveCertOnlyBtn = new JButton("Save Without Skills");
+        JButton cancelBtn = new JButton("Cancel");
+
+        saveBtn.addActionListener(ev -> {
+            if (reviewTable.isEditing()) {
+                reviewTable.getCellEditor().stopCellEditing();
+            }
+
+            List<StudentCertificationSkill> reviewedList = new ArrayList<>();
+            for (int r = 0; r < reviewModel.getRowCount(); r++) {
+                Boolean inc = (Boolean) reviewModel.getValueAt(r, 0);
+                if (Boolean.TRUE.equals(inc)) {
+                    int sid = (int) reviewModel.getValueAt(r, 1);
+                    String sname = (String) reviewModel.getValueAt(r, 2);
+                    String outcome = (String) reviewModel.getValueAt(r, 3);
+                    String prof = (String) reviewModel.getValueAt(r, 4);
+
+                    reviewedList.add(new StudentCertificationSkill(
+                        0,
+                        currentStudent.getStudentId(),
+                        0,
+                        sid,
+                        sname,
+                        outcome,
+                        "Approved",
+                        prof,
+                        null
+                    ));
+                }
+            }
+
+            AppExecutor.runWorker(
+                "save-cert-with-skills",
+                () -> {
+                    certificationService.saveCertificationWithReviewedSkills(cert, reviewedList, currentStudent.getStudentId());
+                    return null;
+                },
+                reviewDialog,
+                res -> {
+                    reviewDialog.dispose();
+                    refreshCertsAndProjectsAsync();
+                    refreshSkillsAsync();
+                    refreshDashboardAsync();
+                    JOptionPane.showMessageDialog(
+                        this,
+                        "Certification and " + reviewedList.size() + " verified skill(s) recorded with supporting evidence!",
+                        "Success",
+                        JOptionPane.INFORMATION_MESSAGE
+                    );
+                },
+                ex -> {
+                    if (ex instanceof UnauthorizedAccessException) {
+                        JOptionPane.showMessageDialog(reviewDialog, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                    } else if (ex instanceof DuplicateEntityException) {
+                        JOptionPane.showMessageDialog(reviewDialog, ex.getMessage(), "Duplicate Record", JOptionPane.WARNING_MESSAGE);
+                    } else if (ex instanceof ValidationException) {
+                        JOptionPane.showMessageDialog(reviewDialog, ex.getMessage(), "Validation Error", JOptionPane.WARNING_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(reviewDialog, "Error saving certification: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Database Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                },
+                saveBtn, saveCertOnlyBtn, cancelBtn
+            );
+        });
+
+        saveCertOnlyBtn.addActionListener(ev -> {
+            AppExecutor.runWorker(
+                "save-cert-only",
+                () -> {
+                    certificationService.saveCertificationWithReviewedSkills(cert, new ArrayList<>(), currentStudent.getStudentId());
+                    return null;
+                },
+                reviewDialog,
+                res -> {
+                    reviewDialog.dispose();
+                    refreshCertsAndProjectsAsync();
+                    refreshSkillsAsync();
+                    refreshDashboardAsync();
+                    JOptionPane.showMessageDialog(this, "Certification saved successfully (without skill mappings).", "Success", JOptionPane.INFORMATION_MESSAGE);
+                },
+                ex -> {
+                    if (ex instanceof UnauthorizedAccessException) {
+                        JOptionPane.showMessageDialog(reviewDialog, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                    } else if (ex instanceof DuplicateEntityException) {
+                        JOptionPane.showMessageDialog(reviewDialog, ex.getMessage(), "Duplicate Record", JOptionPane.WARNING_MESSAGE);
+                    } else if (ex instanceof ValidationException) {
+                        JOptionPane.showMessageDialog(reviewDialog, ex.getMessage(), "Validation Error", JOptionPane.WARNING_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(reviewDialog, "Error saving certification: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Database Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                },
+                saveBtn, saveCertOnlyBtn, cancelBtn
+            );
+        });
+
+        cancelBtn.addActionListener(ev -> reviewDialog.dispose());
+
+        actionBtnPanel.add(saveCertOnlyBtn);
+        actionBtnPanel.add(cancelBtn);
+        actionBtnPanel.add(saveBtn);
+        bottomContainer.add(actionBtnPanel, BorderLayout.SOUTH);
+
+        mainPanel.add(bottomContainer, BorderLayout.SOUTH);
+        reviewDialog.add(mainPanel);
+        reviewDialog.setVisible(true);
+    }
+
+    private void showViewCertSkillsDialog() {
+        int row = certsTable.getSelectedRow();
+        if (row == -1) {
+            if (certsTable.getRowCount() > 0) {
+                certsTable.setRowSelectionInterval(0, 0);
+                row = 0;
+            } else {
+                JOptionPane.showMessageDialog(this, "Please select a certification to view.", "No Selection", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+        }
+
+        int certId = (int) certsModel.getValueAt(row, 0);
+        String certName = (String) certsModel.getValueAt(row, 1);
+        String org = (String) certsModel.getValueAt(row, 2);
+
+        setBusy(true, "Loading certification skills...");
+        AppExecutor.runWorker(
+            "load-cert-skills",
+            () -> certificationService.getCertificationSkills(certId),
+            this,
+            skills -> {
+                setBusy(false, "Ready");
+                openViewCertSkillsDialog(certName, org, skills);
+            },
+            ex -> {
+                setBusy(false, "Ready");
+                JOptionPane.showMessageDialog(this, "Error retrieving certification skills: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        );
+    }
+
+    private void openViewCertSkillsDialog(String certName, String org, List<StudentCertificationSkill> skills) {
+        JDialog dialog = new JDialog(this, "Verified Skills & Evidence: " + certName, true);
+        dialog.setSize(680, 380);
+        dialog.setLocationRelativeTo(this);
+
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(new EmptyBorder(12, 12, 12, 12));
+
+        JLabel title = new JLabel("Certification: " + certName + " (" + org + ")");
+        title.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        panel.add(title, BorderLayout.NORTH);
+
+        if (skills == null || skills.isEmpty()) {
+            JLabel emptyLbl = new JLabel("No skill mappings or learning outcomes recorded for this certification.");
+            emptyLbl.setHorizontalAlignment(SwingConstants.CENTER);
+            panel.add(emptyLbl, BorderLayout.CENTER);
+        } else {
+            DefaultTableModel model = new DefaultTableModel(
+                new String[]{"Skill Name", "Assessed Proficiency", "Learning Outcome / Competency", "Status"}, 0
+            ) {
+                @Override public boolean isCellEditable(int r, int c) { return false; }
+            };
+            for (StudentCertificationSkill s : skills) {
+                model.addRow(new Object[]{
+                    s.getSkillName(),
+                    s.getAssessedProficiency(),
+                    s.getLearningOutcome(),
+                    s.getReviewStatus()
+                });
+            }
+            JTable table = new JTable(model);
+            table.setRowHeight(26);
+            table.getColumnModel().getColumn(0).setPreferredWidth(130);
+            table.getColumnModel().getColumn(1).setPreferredWidth(120);
+            table.getColumnModel().getColumn(2).setPreferredWidth(280);
+            table.getColumnModel().getColumn(3).setPreferredWidth(80);
+            panel.add(new JScrollPane(table), BorderLayout.CENTER);
+        }
+
+        JButton closeBtn = new JButton("Close");
+        closeBtn.addActionListener(e -> dialog.dispose());
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        btnPanel.add(closeBtn);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+
+        dialog.add(panel);
+        dialog.setVisible(true);
+    }
+
+    private void showSkillEvidenceDialog() {
+        int row = studentSkillsTable.getSelectedRow();
+        if (row == -1) {
+            if (studentSkillsTable.getRowCount() > 0) {
+                studentSkillsTable.setRowSelectionInterval(0, 0);
+                row = 0;
+            } else {
+                JOptionPane.showMessageDialog(this, "Please select a skill from the list to view its evidence.", "No Selection", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+        }
+
+        int skillId = (int) studentSkillsModel.getValueAt(row, 0);
+        String skillName = (String) studentSkillsModel.getValueAt(row, 1);
+        String currentLevel = (String) studentSkillsModel.getValueAt(row, 3);
+
+        setBusy(true, "Loading skill evidence...");
+        AppExecutor.runWorker(
+            "load-skill-evidence",
+            () -> skillService.getSkillEvidence(currentStudent.getStudentId(), skillId),
+            this,
+            evidenceList -> {
+                setBusy(false, "Ready");
+                openSkillEvidenceDialog(skillName, currentLevel, evidenceList);
+            },
+            ex -> {
+                setBusy(false, "Ready");
+                JOptionPane.showMessageDialog(this, "Error retrieving skill evidence: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        );
+    }
+
+    private void openSkillEvidenceDialog(String skillName, String currentLevel, List<SkillEvidence> evidenceList) {
+        JDialog dialog = new JDialog(this, "Skill Evidence & Verification: " + skillName, true);
+        dialog.setSize(720, 380);
+        dialog.setLocationRelativeTo(this);
+
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(new EmptyBorder(12, 12, 12, 12));
+
+        JLabel title = new JLabel("Supporting Evidence for: " + skillName + " (Demonstrated Level: " + currentLevel + ")");
+        title.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        panel.add(title, BorderLayout.NORTH);
+
+        if (evidenceList == null || evidenceList.isEmpty()) {
+            JLabel emptyLbl = new JLabel("<html><i>No formal evidence records found for this skill.<br>Current status: Self-Reported only (Unverified).</i></html>");
+            emptyLbl.setHorizontalAlignment(SwingConstants.CENTER);
+            panel.add(emptyLbl, BorderLayout.CENTER);
+        } else {
+            DefaultTableModel model = new DefaultTableModel(
+                new String[]{"Evidence Type", "Evidence Source / Title", "Details", "Status", "Date"}, 0
+            ) {
+                @Override public boolean isCellEditable(int r, int c) { return false; }
+            };
+            for (SkillEvidence ev : evidenceList) {
+                model.addRow(new Object[]{
+                    ev.getEvidenceType(),
+                    ev.getEvidenceTitle(),
+                    ev.getEvidenceDetails(),
+                    ev.getVerificationStatus(),
+                    ev.getCreatedAt() != null ? new SimpleDateFormat("yyyy-MM-dd").format(ev.getCreatedAt()) : "-"
+                });
+            }
+            JTable table = new JTable(model);
+            table.setRowHeight(26);
+            table.getColumnModel().getColumn(0).setPreferredWidth(100);
+            table.getColumnModel().getColumn(1).setPreferredWidth(170);
+            table.getColumnModel().getColumn(2).setPreferredWidth(230);
+            table.getColumnModel().getColumn(3).setPreferredWidth(80);
+            table.getColumnModel().getColumn(4).setPreferredWidth(90);
+            panel.add(new JScrollPane(table), BorderLayout.CENTER);
+        }
+
+        JButton closeBtn = new JButton("Close");
+        closeBtn.addActionListener(e -> dialog.dispose());
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        btnPanel.add(closeBtn);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+
+        dialog.add(panel);
+        dialog.setVisible(true);
+    }
+
+    private void showEditCertDialog() {
+        int row = certsTable.getSelectedRow();
+        if (row == -1) {
+            JOptionPane.showMessageDialog(this, "Please select a certification to edit.", "No Selection", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        int certId = (int) certsModel.getValueAt(row, 0);
+
+        setBusy(true, "Loading certification details...");
+        AppExecutor.runWorker(
+            "load-cert-edit",
+            () -> {
+                for (Certification c : certificationService.getCertifications(currentStudent.getStudentId())) {
+                    if (c.getCertificationId() == certId) return c;
+                }
+                return null;
+            },
+            this,
+            currentCert -> {
+                setBusy(false, "Ready");
+                if (currentCert == null) {
+                    JOptionPane.showMessageDialog(this, "Certification could not be found.");
+                    return;
+                }
+                openEditCertDialog(currentCert);
+            },
+            ex -> {
+                setBusy(false, "Ready");
+                JOptionPane.showMessageDialog(this, "Error retrieving certification: " + ex.getMessage());
+            }
+        );
+    }
+
+    private void openEditCertDialog(Certification currentCert) {
+        JPanel panel = new JPanel(new GridLayout(4, 2, 8, 8));
+        JTextField nameField = new JTextField(currentCert.getCertificateName());
+        JTextField orgField = new JTextField(currentCert.getIssuingOrganization());
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        JTextField dateField = new JTextField(currentCert.getIssueDate() != null ? sdf.format(currentCert.getIssueDate()) : "");
+        JTextField credField = new JTextField(currentCert.getCredentialId() != null ? currentCert.getCredentialId() : "");
+
+        panel.add(new JLabel("Certification Name *:"));
+        panel.add(nameField);
+        panel.add(new JLabel("Issuing Organization *:"));
+        panel.add(orgField);
+        panel.add(new JLabel("Issue Date (YYYY-MM-DD) *:"));
+        panel.add(dateField);
+        panel.add(new JLabel("Credential ID:"));
+        panel.add(credField);
+
+        int res = JOptionPane.showConfirmDialog(this, panel, "Edit Certification", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (res == JOptionPane.OK_OPTION) {
+            String name = nameField.getText().trim();
+            String org = orgField.getText().trim();
+            String dateStr = dateField.getText().trim();
+
+            if (!ValidationUtil.isNonEmpty(name)) {
+                JOptionPane.showMessageDialog(this, "Certification Name is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (!ValidationUtil.isNonEmpty(org)) {
+                JOptionPane.showMessageDialog(this, "Issuing Organization is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (!ValidationUtil.isValidDate(dateStr)) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid issue date in YYYY-MM-DD format.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            Date parsedDate = ValidationUtil.parseDate(dateStr);
+            currentCert.setCertificateName(name);
+            currentCert.setIssuingOrganization(org);
+            currentCert.setIssueDate(parsedDate);
+            currentCert.setCredentialId(credField.getText().trim());
+
+            setBusy(true, "Updating certification...");
+            AppExecutor.runWorker(
+                "update-cert",
+                () -> {
+                    certificationService.updateCertification(currentCert);
+                    return null;
+                },
+                this,
+                r -> {
+                    setBusy(false, "Certification updated");
+                    refreshCertsAndProjectsAsync();
+                    JOptionPane.showMessageDialog(this, "Certification updated successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
+                },
+                ex -> {
+                    setBusy(false, "Ready");
+                    if (ex instanceof ValidationException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Validation Error", JOptionPane.WARNING_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Error updating certification: " + ex.getMessage(), "Database Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            );
         }
     }
 
@@ -1136,12 +3083,27 @@ public class MainFrame extends JFrame {
         String name = (String) certsModel.getValueAt(row, 1);
         int confirm = JOptionPane.showConfirmDialog(this, "Remove certification '" + name + "'?", "Confirm Removal", JOptionPane.YES_NO_OPTION);
         if (confirm == JOptionPane.YES_OPTION) {
-            try {
-                AppDAO.deleteCertification(certId);
-                refreshCertsAndProjects();
-            } catch (SQLException ex) {
-                JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
-            }
+            setBusy(true, "Removing certification...");
+            AppExecutor.runWorker(
+                "delete-cert",
+                () -> {
+                    certificationService.deleteCertification(certId, currentStudent.getStudentId());
+                    return null;
+                },
+                this,
+                res -> {
+                    setBusy(false, "Certification removed");
+                    refreshCertsAndProjectsAsync();
+                },
+                ex -> {
+                    setBusy(false, "Ready");
+                    if (ex instanceof UnauthorizedAccessException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Error: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Database Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            );
         }
     }
 
@@ -1152,24 +3114,147 @@ public class MainFrame extends JFrame {
         JTextField techField = new JTextField("Java, Swing, MySQL");
         JTextField urlField = new JTextField("https://github.com/...");
 
-        panel.add(new JLabel("Project Title:"));
+        panel.add(new JLabel("Project Title *:"));
         panel.add(titleField);
         panel.add(new JLabel("Description:"));
         panel.add(descField);
-        panel.add(new JLabel("Technologies Used:"));
+        panel.add(new JLabel("Technologies Used *:"));
         panel.add(techField);
         panel.add(new JLabel("Project Link / Repo URL:"));
         panel.add(urlField);
 
         int res = JOptionPane.showConfirmDialog(this, panel, "Add Academic Project", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-        if (res == JOptionPane.OK_OPTION && !titleField.getText().trim().isEmpty()) {
-            try {
-                Project p = new Project(0, currentStudent.getStudentId(), titleField.getText().trim(), descField.getText().trim(), techField.getText().trim(), urlField.getText().trim());
-                AppDAO.addProject(p);
-                refreshCertsAndProjects();
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "Error adding project: " + ex.getMessage());
+        if (res == JOptionPane.OK_OPTION) {
+            String title = titleField.getText().trim();
+            String tech = techField.getText().trim();
+
+            if (!ValidationUtil.isNonEmpty(title)) {
+                JOptionPane.showMessageDialog(this, "Project Title is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
             }
+            if (!ValidationUtil.isNonEmpty(tech)) {
+                JOptionPane.showMessageDialog(this, "Technologies Used is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            Project p = new Project(0, currentStudent.getStudentId(), title, descField.getText().trim(), tech, urlField.getText().trim());
+            setBusy(true, "Adding academic project...");
+            AppExecutor.runWorker(
+                "add-project",
+                () -> {
+                    projectService.addProject(p);
+                    return null;
+                },
+                this,
+                r -> {
+                    setBusy(false, "Project added");
+                    refreshCertsAndProjectsAsync();
+                    JOptionPane.showMessageDialog(this, "Academic project added successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
+                },
+                ex -> {
+                    setBusy(false, "Ready");
+                    if (ex instanceof ValidationException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Validation Error", JOptionPane.WARNING_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Error adding project: " + ex.getMessage(), "Database Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            );
+        }
+    }
+
+    private void showEditProjectDialog() {
+        int row = projTable.getSelectedRow();
+        if (row == -1) {
+            JOptionPane.showMessageDialog(this, "Please select an academic project to edit.", "No Selection", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        int pid = (int) projectsModel.getValueAt(row, 0);
+
+        setBusy(true, "Loading project details...");
+        AppExecutor.runWorker(
+            "load-proj-edit",
+            () -> {
+                for (Project p : projectService.getProjects(currentStudent.getStudentId())) {
+                    if (p.getProjectId() == pid) return p;
+                }
+                return null;
+            },
+            this,
+            currentProj -> {
+                setBusy(false, "Ready");
+                if (currentProj == null) {
+                    JOptionPane.showMessageDialog(this, "Project could not be found.");
+                    return;
+                }
+                openEditProjectDialog(currentProj);
+            },
+            ex -> {
+                setBusy(false, "Ready");
+                JOptionPane.showMessageDialog(this, "Error retrieving project: " + ex.getMessage());
+            }
+        );
+    }
+
+    private void openEditProjectDialog(Project currentProj) {
+        JPanel panel = new JPanel(new GridLayout(4, 2, 8, 8));
+        JTextField titleField = new JTextField(currentProj.getTitle());
+        JTextField descField = new JTextField(currentProj.getDescription() != null ? currentProj.getDescription() : "");
+        JTextField techField = new JTextField(currentProj.getTechnologiesUsed() != null ? currentProj.getTechnologiesUsed() : "");
+        JTextField urlField = new JTextField(currentProj.getProjectUrl() != null ? currentProj.getProjectUrl() : "");
+
+        panel.add(new JLabel("Project Title *:"));
+        panel.add(titleField);
+        panel.add(new JLabel("Description:"));
+        panel.add(descField);
+        panel.add(new JLabel("Technologies Used *:"));
+        panel.add(techField);
+        panel.add(new JLabel("Project Link / Repo URL:"));
+        panel.add(urlField);
+
+        int res = JOptionPane.showConfirmDialog(this, panel, "Edit Academic Project", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (res == JOptionPane.OK_OPTION) {
+            String title = titleField.getText().trim();
+            String tech = techField.getText().trim();
+
+            if (!ValidationUtil.isNonEmpty(title)) {
+                JOptionPane.showMessageDialog(this, "Project Title is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (!ValidationUtil.isNonEmpty(tech)) {
+                JOptionPane.showMessageDialog(this, "Technologies Used is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            currentProj.setTitle(title);
+            currentProj.setDescription(descField.getText().trim());
+            currentProj.setTechnologiesUsed(tech);
+            currentProj.setProjectUrl(urlField.getText().trim());
+
+            setBusy(true, "Updating academic project...");
+            AppExecutor.runWorker(
+                "update-project",
+                () -> {
+                    projectService.updateProject(currentProj, currentStudent.getStudentId());
+                    return null;
+                },
+                this,
+                r -> {
+                    setBusy(false, "Project updated");
+                    refreshCertsAndProjectsAsync();
+                    JOptionPane.showMessageDialog(this, "Academic project updated successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
+                },
+                ex -> {
+                    setBusy(false, "Ready");
+                    if (ex instanceof UnauthorizedAccessException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                    } else if (ex instanceof ValidationException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Validation Error", JOptionPane.WARNING_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Error updating project: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Database Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            );
         }
     }
 
@@ -1188,12 +3273,36 @@ public class MainFrame extends JFrame {
         String title = (String) projectsModel.getValueAt(row, 1);
         int confirm = JOptionPane.showConfirmDialog(this, "Remove project '" + title + "'?", "Confirm Removal", JOptionPane.YES_NO_OPTION);
         if (confirm == JOptionPane.YES_OPTION) {
-            try {
-                AppDAO.deleteProject(pid);
-                refreshCertsAndProjects();
-            } catch (SQLException ex) {
-                JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
-            }
+            setBusy(true, "Removing academic project...");
+            AppExecutor.runWorker(
+                "delete-project",
+                () -> {
+                    projectService.deleteProject(pid, currentStudent.getStudentId());
+                    return null;
+                },
+                this,
+                res -> {
+                    setBusy(false, "Project removed");
+                    refreshCertsAndProjectsAsync();
+                },
+                ex -> {
+                    setBusy(false, "Ready");
+                    if (ex instanceof UnauthorizedAccessException) {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Authorization Error", JOptionPane.ERROR_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Error: " + ValidationUtil.sanitizeErrorMessage((Exception) ex), "Database Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            );
+        }
+    }
+
+    private static class CertInitData {
+        final List<CertificationSkillMapping> suggestions;
+        final List<Skill> allSkills;
+        CertInitData(List<CertificationSkillMapping> suggestions, List<Skill> allSkills) {
+            this.suggestions = suggestions;
+            this.allSkills = allSkills;
         }
     }
 

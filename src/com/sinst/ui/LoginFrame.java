@@ -1,18 +1,29 @@
 package com.sinst.ui;
 
-import com.sinst.db.AppDAO;
 import com.sinst.db.DBConnection;
+import com.sinst.exception.DatabaseException;
+import com.sinst.exception.DuplicateEntityException;
+import com.sinst.exception.EntityNotFoundException;
+import com.sinst.exception.ValidationException;
 import com.sinst.model.Student;
+import com.sinst.service.StudentService;
+import com.sinst.service.StudentServiceImpl;
+import com.sinst.util.AppExecutor;
+import com.sinst.util.UserSession;
+import com.sinst.util.ValidationUtil;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.sql.SQLException;
 
 public class LoginFrame extends JFrame {
 
     private JTextField loginIdentifierField;
     private JPasswordField loginPasswordField;
+    private JButton loginBtn;
 
     private JTextField regRollField;
     private JTextField regNameField;
@@ -21,8 +32,17 @@ public class LoginFrame extends JFrame {
     private JComboBox<String> regDeptCombo;
     private JComboBox<Integer> regYearCombo;
     private JTextField regPhoneField;
+    private JButton regBtn;
+
+    private JLabel statusLabel;
+    private final StudentService studentService;
 
     public LoginFrame() {
+        this(new StudentServiceImpl());
+    }
+
+    public LoginFrame(StudentService studentService) {
+        this.studentService = studentService;
         setTitle("Smart Internship & Skill Tracker (SINST) - Login");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(560, 640);
@@ -30,6 +50,15 @@ public class LoginFrame extends JFrame {
         setResizable(false);
 
         initUI();
+
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                AppExecutor.cancelTask("login-task");
+                AppExecutor.cancelTask("register-task");
+                AppExecutor.cancelTask("db-test-task");
+            }
+        });
     }
 
     private void initUI() {
@@ -73,10 +102,9 @@ public class LoginFrame extends JFrame {
         dbConfigBtn.setFocusPainted(false);
         dbConfigBtn.addActionListener(e -> showDBSettingsDialog());
 
-        boolean isConnected = DBConnection.testConnection();
-        JLabel statusLabel = new JLabel(isConnected ? "Database: Connected" : "Database: Disconnected");
+        statusLabel = new JLabel("Database: Checking...");
         statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        statusLabel.setForeground(isConnected ? new Color(39, 174, 96) : new Color(192, 57, 43));
+        statusLabel.setForeground(new Color(128, 128, 128));
 
         footerPanel.add(statusLabel, BorderLayout.WEST);
         footerPanel.add(dbConfigBtn, BorderLayout.EAST);
@@ -84,6 +112,28 @@ public class LoginFrame extends JFrame {
         mainPanel.add(footerPanel, BorderLayout.SOUTH);
 
         add(mainPanel);
+
+        checkDatabaseConnectionAsync();
+    }
+
+    private void checkDatabaseConnectionAsync() {
+        AppExecutor.runWorker(
+            "db-test-init",
+            DBConnection::testConnection,
+            isConnected -> {
+                if (statusLabel != null) {
+                    statusLabel.setText(isConnected ? "Database: Connected" : "Database: Disconnected");
+                    statusLabel.setForeground(isConnected ? new Color(39, 174, 96) : new Color(192, 57, 43));
+                }
+            },
+            error -> {
+                if (statusLabel != null) {
+                    statusLabel.setText("Database: Disconnected");
+                    statusLabel.setForeground(new Color(192, 57, 43));
+                }
+            },
+            null
+        );
     }
 
     private JPanel createLoginPanel() {
@@ -119,7 +169,7 @@ public class LoginFrame extends JFrame {
 
         // Login Button
         gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2;
-        JButton loginBtn = new JButton("Secure Login");
+        loginBtn = new JButton("Secure Login");
         loginBtn.setFont(new Font("Segoe UI", Font.BOLD, 13));
         loginBtn.setBackground(new Color(24, 100, 180));
         loginBtn.setForeground(Color.WHITE);
@@ -198,7 +248,7 @@ public class LoginFrame extends JFrame {
 
         // Register Button
         gbc.gridx = 0; gbc.gridy = 7; gbc.gridwidth = 2;
-        JButton regBtn = new JButton("Register Profile");
+        regBtn = new JButton("Register Profile");
         regBtn.setFont(new Font("Segoe UI", Font.BOLD, 13));
         regBtn.setBackground(new Color(39, 174, 96));
         regBtn.setForeground(Color.WHITE);
@@ -215,21 +265,36 @@ public class LoginFrame extends JFrame {
         String password = new String(loginPasswordField.getPassword()).trim();
 
         if (identifier.isEmpty() || password.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Please enter both Roll Number/Email and Password.", "Input Required", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Please enter both Roll Number / Email and Password.", "Input Required", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        try {
-            Student student = AppDAO.login(identifier, password);
-            if (student != null) {
+        if (loginBtn != null) {
+            loginBtn.setText("Signing In...");
+        }
+
+        AppExecutor.runWorker(
+            "login-task",
+            () -> studentService.login(identifier, password),
+            student -> {
+                if (loginBtn != null) loginBtn.setText("Secure Login");
+                UserSession.setCurrentStudent(student);
                 new MainFrame(student).setVisible(true);
                 dispose();
-            } else {
-                JOptionPane.showMessageDialog(this, "Invalid credentials. Please check your roll number/password.", "Authentication Failed", JOptionPane.ERROR_MESSAGE);
-            }
-        } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this, "Database Connection Error: " + e.getMessage() + "\n\nPlease check Database Settings (button at the bottom).", "Database Error", JOptionPane.ERROR_MESSAGE);
-        }
+            },
+            error -> {
+                if (loginBtn != null) loginBtn.setText("Secure Login");
+                if (error instanceof ValidationException) {
+                    JOptionPane.showMessageDialog(this, error.getMessage(), "Input Required", JOptionPane.WARNING_MESSAGE);
+                } else if (error instanceof EntityNotFoundException) {
+                    JOptionPane.showMessageDialog(this, error.getMessage(), "Authentication Failed", JOptionPane.ERROR_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(this, "Database Connection Error: " + ValidationUtil.sanitizeErrorMessage(error) + "\n\nPlease check Database Settings (button at the bottom).", "Database Error", JOptionPane.ERROR_MESSAGE);
+                }
+            },
+            this,
+            loginBtn
+        );
     }
 
     private void performRegistration() {
@@ -238,27 +303,42 @@ public class LoginFrame extends JFrame {
         String email = regEmailField.getText().trim();
         String password = new String(regPasswordField.getPassword()).trim();
         String dept = (String) regDeptCombo.getSelectedItem();
-        int year = (Integer) regYearCombo.getSelectedItem();
+        Integer yearObj = (Integer) regYearCombo.getSelectedItem();
+        int year = yearObj != null ? yearObj : 2;
         String phone = regPhoneField.getText().trim();
 
         if (roll.isEmpty() || name.isEmpty() || email.isEmpty() || password.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Please fill in all mandatory fields (Roll No, Name, Email, Password).", "Missing Information", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Please fill in all required registration fields.", "Validation Error", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
         Student newStudent = new Student(0, roll, name, email, password, dept, year, phone);
-        try {
-            boolean success = AppDAO.registerStudent(newStudent);
-            if (success) {
+        if (regBtn != null) {
+            regBtn.setText("Registering...");
+        }
+
+        AppExecutor.runWorker(
+            "register-task",
+            () -> studentService.register(newStudent),
+            student -> {
+                if (regBtn != null) regBtn.setText("Register Profile");
                 JOptionPane.showMessageDialog(this, "Registration Successful! You may now login.", "Success", JOptionPane.INFORMATION_MESSAGE);
                 loginIdentifierField.setText(roll);
                 loginPasswordField.setText(password);
-            } else {
-                JOptionPane.showMessageDialog(this, "Registration could not be completed.", "Error", JOptionPane.ERROR_MESSAGE);
-            }
-        } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this, "Registration Error: " + e.getMessage(), "Database Error", JOptionPane.ERROR_MESSAGE);
-        }
+            },
+            error -> {
+                if (regBtn != null) regBtn.setText("Register Profile");
+                if (error instanceof ValidationException) {
+                    JOptionPane.showMessageDialog(this, error.getMessage(), "Validation Error", JOptionPane.WARNING_MESSAGE);
+                } else if (error instanceof DuplicateEntityException) {
+                    JOptionPane.showMessageDialog(this, "Registration Error: " + error.getMessage(), "Duplicate Record", JOptionPane.ERROR_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(this, "Registration Error: " + ValidationUtil.sanitizeErrorMessage(error), "Database Error", JOptionPane.ERROR_MESSAGE);
+                }
+            },
+            this,
+            regBtn
+        );
     }
 
     private void showDBSettingsDialog() {
@@ -291,12 +371,35 @@ public class LoginFrame extends JFrame {
                     userField.getText().trim(),
                     new String(passField.getPassword())
                 );
-                boolean connected = DBConnection.testConnection();
-                if (connected) {
-                    JOptionPane.showMessageDialog(this, "Database connection successful!", "Connected", JOptionPane.INFORMATION_MESSAGE);
-                } else {
-                    JOptionPane.showMessageDialog(this, "Could not connect with provided settings. Please verify MySQL service is running.", "Connection Failed", JOptionPane.WARNING_MESSAGE);
+                
+                if (statusLabel != null) {
+                    statusLabel.setText("Database: Testing connection...");
+                    statusLabel.setForeground(new Color(128, 128, 128));
                 }
+
+                AppExecutor.runWorker(
+                    "db-settings-test",
+                    DBConnection::testConnection,
+                    connected -> {
+                        if (statusLabel != null) {
+                            statusLabel.setText(connected ? "Database: Connected" : "Database: Disconnected");
+                            statusLabel.setForeground(connected ? new Color(39, 174, 96) : new Color(192, 57, 43));
+                        }
+                        if (connected) {
+                            JOptionPane.showMessageDialog(this, "Database connection successful!", "Connected", JOptionPane.INFORMATION_MESSAGE);
+                        } else {
+                            JOptionPane.showMessageDialog(this, "Could not connect with provided settings. Please verify MySQL service is running.", "Connection Failed", JOptionPane.WARNING_MESSAGE);
+                        }
+                    },
+                    error -> {
+                        if (statusLabel != null) {
+                            statusLabel.setText("Database: Disconnected");
+                            statusLabel.setForeground(new Color(192, 57, 43));
+                        }
+                        JOptionPane.showMessageDialog(this, "Could not connect with provided settings: " + ValidationUtil.sanitizeErrorMessage(error), "Connection Failed", JOptionPane.WARNING_MESSAGE);
+                    },
+                    this
+                );
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Invalid settings: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }

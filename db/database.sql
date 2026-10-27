@@ -1,4 +1,19 @@
 
+-- ====================================================================
+-- SMART INTERNSHIP & SKILL TRACKER (SINST) - COMPLETE DATABASE SETUP
+-- ====================================================================
+-- Comprehensive relational schema initialization script.
+--
+-- Safety Guarantees:
+-- 1. Idempotent: Uses CREATE TABLE IF NOT EXISTS and INSERT IGNORE.
+-- 2. Safe execution: Does NOT drop or reset existing databases or data.
+-- 3. Normalized: 14 relational tables enforcing 3NF, foreign keys,
+--    and composite domain constraints.
+--
+-- Usage:
+--   mysql -u root -p < db/database.sql
+-- ====================================================================
+
 CREATE DATABASE IF NOT EXISTS sinst_db;
 USE sinst_db;
 
@@ -11,6 +26,7 @@ CREATE TABLE IF NOT EXISTS students (
     department VARCHAR(50) DEFAULT 'CSE',
     year_of_study INT DEFAULT 2,
     phone VARCHAR(15),
+    role ENUM('STUDENT', 'ADMIN') DEFAULT 'STUDENT',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -29,6 +45,7 @@ CREATE TABLE IF NOT EXISTS companies (
     industry VARCHAR(50),
     location VARCHAR(100),
     website VARCHAR(150),
+    careers_url VARCHAR(255),
     contact_email VARCHAR(100)
 );
 
@@ -37,7 +54,9 @@ CREATE TABLE IF NOT EXISTS roles (
     role_id INT AUTO_INCREMENT PRIMARY KEY,
     role_title VARCHAR(100) NOT NULL UNIQUE,
     description TEXT,
-    experience_level VARCHAR(30) DEFAULT 'Intern'
+    experience_level VARCHAR(30) DEFAULT 'Intern',
+    information_source VARCHAR(150) DEFAULT 'Industry Standard Competency Framework',
+    last_updated DATE DEFAULT (CURRENT_DATE)
 );
 
 
@@ -46,9 +65,25 @@ CREATE TABLE IF NOT EXISTS role_skills (
     skill_id INT NOT NULL,
     required_level ENUM('Beginner', 'Intermediate', 'Advanced', 'Expert') NOT NULL DEFAULT 'Intermediate',
     is_mandatory BOOLEAN DEFAULT TRUE,
+    importance_weight INT DEFAULT 1,
     PRIMARY KEY (role_id, skill_id),
     CONSTRAINT fk_role_skills_role FOREIGN KEY (role_id) REFERENCES roles(role_id) ON DELETE CASCADE,
     CONSTRAINT fk_role_skills_skill FOREIGN KEY (skill_id) REFERENCES skills(skill_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS company_roles (
+    company_role_id INT AUTO_INCREMENT PRIMARY KEY,
+    company_id INT NOT NULL,
+    role_id INT NOT NULL,
+    vacancy_status ENUM('Potential Role Match', 'Verified Vacancy', 'Campus Drive', 'Closed', 'Unverified') DEFAULT 'Potential Role Match',
+    vacancy_source VARCHAR(150) DEFAULT 'Company Competency Profile',
+    information_source VARCHAR(150) DEFAULT 'Official Careers Portal / Campus Listing',
+    last_verified DATE DEFAULT (CURRENT_DATE),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_cr_company FOREIGN KEY (company_id) REFERENCES companies(company_id) ON DELETE CASCADE,
+    CONSTRAINT fk_cr_role FOREIGN KEY (role_id) REFERENCES roles(role_id) ON DELETE CASCADE,
+    CONSTRAINT uq_company_role UNIQUE (company_id, role_id)
 );
 
 CREATE TABLE IF NOT EXISTS student_skills (
@@ -68,13 +103,14 @@ CREATE TABLE IF NOT EXISTS internship_applications (
     role_id INT NOT NULL,
     application_date DATE NOT NULL,
     deadline DATE,
-    status ENUM('Applied', 'Shortlisted', 'Interview', 'Selected', 'Rejected') DEFAULT 'Applied',
+    status ENUM('Applied', 'Under Review', 'Shortlisted', 'Interview', 'Accepted', 'Selected', 'Rejected', 'Withdrawn') DEFAULT 'Applied',
     stipend VARCHAR(50),
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_app_student FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE,
     CONSTRAINT fk_app_company FOREIGN KEY (company_id) REFERENCES companies(company_id) ON DELETE RESTRICT,
-    CONSTRAINT fk_app_role FOREIGN KEY (role_id) REFERENCES roles(role_id) ON DELETE RESTRICT
+    CONSTRAINT fk_app_role FOREIGN KEY (role_id) REFERENCES roles(role_id) ON DELETE RESTRICT,
+    CONSTRAINT uq_student_company_role UNIQUE (student_id, company_id, role_id)
 );
 
 
@@ -83,11 +119,13 @@ CREATE TABLE IF NOT EXISTS interviews (
     application_id INT NOT NULL,
     interview_date DATETIME NOT NULL,
     round_type VARCHAR(50) NOT NULL,
+    round_number INT DEFAULT 1,
     mode ENUM('Online', 'In-Person') DEFAULT 'Online',
     status ENUM('Scheduled', 'Completed', 'Cancelled', 'Rescheduled') DEFAULT 'Scheduled',
     outcome ENUM('Pending', 'Passed', 'Failed') DEFAULT 'Pending',
     feedback TEXT,
-    CONSTRAINT fk_interview_app FOREIGN KEY (application_id) REFERENCES internship_applications(application_id) ON DELETE CASCADE
+    CONSTRAINT fk_interview_app FOREIGN KEY (application_id) REFERENCES internship_applications(application_id) ON DELETE CASCADE,
+    CONSTRAINT uq_interview_app_round_date UNIQUE (application_id, round_type, interview_date)
 );
 
 
@@ -97,8 +135,11 @@ CREATE TABLE IF NOT EXISTS certifications (
     certificate_name VARCHAR(150) NOT NULL,
     issuing_organization VARCHAR(100) NOT NULL,
     issue_date DATE NOT NULL,
+    expiry_date DATE DEFAULT NULL,
     credential_id VARCHAR(100),
-    CONSTRAINT fk_cert_student FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE
+    credential_url VARCHAR(255) DEFAULT NULL,
+    CONSTRAINT fk_cert_student FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE,
+    CONSTRAINT uq_student_cert UNIQUE (student_id, certificate_name, issuing_organization)
 );
 
 
@@ -109,7 +150,54 @@ CREATE TABLE IF NOT EXISTS projects (
     description TEXT,
     technologies_used VARCHAR(255),
     project_url VARCHAR(255),
-    CONSTRAINT fk_proj_student FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE
+    github_url VARCHAR(255) DEFAULT NULL,
+    live_url VARCHAR(255) DEFAULT NULL,
+    CONSTRAINT fk_proj_student FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE,
+    CONSTRAINT uq_student_proj_title UNIQUE (student_id, title)
+);
+
+CREATE TABLE IF NOT EXISTS certification_skills (
+    mapping_id INT AUTO_INCREMENT PRIMARY KEY,
+    certification_name VARCHAR(150) NOT NULL,
+    issuing_organization VARCHAR(100),
+    skill_id INT NOT NULL,
+    learning_outcome VARCHAR(255) NOT NULL,
+    evidence_source VARCHAR(100) DEFAULT 'Official Curriculum / Syllabus',
+    suggested_proficiency ENUM('Beginner', 'Intermediate', 'Advanced', 'Expert') DEFAULT 'Intermediate',
+    mapping_status ENUM('Verified', 'Pending', 'Deprecated') DEFAULT 'Verified',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_cert_skills_skill FOREIGN KEY (skill_id) REFERENCES skills(skill_id) ON DELETE CASCADE,
+    CONSTRAINT uq_cert_skill UNIQUE (certification_name, skill_id)
+);
+
+CREATE TABLE IF NOT EXISTS student_certification_skills (
+    record_id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id INT NOT NULL,
+    certification_id INT NOT NULL,
+    skill_id INT NOT NULL,
+    learning_outcome VARCHAR(255),
+    review_status ENUM('Approved', 'Pending', 'Rejected') DEFAULT 'Approved',
+    assessed_proficiency ENUM('Beginner', 'Intermediate', 'Advanced', 'Expert') DEFAULT 'Intermediate',
+    review_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_stud_cert_skills_student FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE,
+    CONSTRAINT fk_stud_cert_skills_cert FOREIGN KEY (certification_id) REFERENCES certifications(certification_id) ON DELETE CASCADE,
+    CONSTRAINT fk_stud_cert_skills_skill FOREIGN KEY (skill_id) REFERENCES skills(skill_id) ON DELETE CASCADE,
+    CONSTRAINT uq_stud_cert_skill UNIQUE (certification_id, skill_id)
+);
+
+CREATE TABLE IF NOT EXISTS skill_evidence (
+    evidence_id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id INT NOT NULL,
+    skill_id INT NOT NULL,
+    evidence_type ENUM('Self-Reported', 'Certification', 'Project', 'Assessment') NOT NULL,
+    reference_id INT DEFAULT NULL,
+    evidence_title VARCHAR(200) NOT NULL,
+    evidence_details TEXT,
+    verification_status ENUM('Unverified', 'Verified', 'Rejected') DEFAULT 'Verified',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_skill_ev_student FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE,
+    CONSTRAINT fk_skill_ev_skill FOREIGN KEY (skill_id) REFERENCES skills(skill_id) ON DELETE CASCADE,
+    CONSTRAINT uq_student_skill_evidence UNIQUE (student_id, skill_id, evidence_type, reference_id)
 );
 
 
@@ -172,13 +260,31 @@ INSERT IGNORE INTO role_skills (role_id, skill_id, required_level, is_mandatory)
 (4, 16, 'Intermediate', TRUE); 
 
 -- Master Companies
-INSERT IGNORE INTO companies (company_id, company_name, industry, location, website, contact_email) VALUES
-(1, 'Google', 'Information Technology', 'Hyderabad, India', 'https://careers.google.com', 'campus@google.com'),
-(2, 'Microsoft', 'Software & Cloud', 'Hyderabad, India', 'https://careers.microsoft.com', 'recruitment@microsoft.com'),
-(3, 'Amazon', 'E-Commerce & Cloud', 'Hyderabad, India', 'https://amazon.jobs', 'internships@amazon.com'),
-(4, 'Infosys', 'IT Services & Consulting', 'Bengaluru, India', 'https://infosys.com/careers', 'careers@infosys.com'),
-(5, 'Tata Consultancy Services (TCS)', 'IT & Enterprise Solutions', 'Hyderabad, India', 'https://tcs.com/careers', 'campus.hiring@tcs.com'),
-(6, 'Wipro', 'IT Consulting', 'Bengaluru, India', 'https://wipro.com', 'careers@wipro.com');
+INSERT IGNORE INTO companies (company_id, company_name, industry, location, website, careers_url, contact_email) VALUES
+(1, 'Google', 'Information Technology', 'Hyderabad, India', 'https://google.com', 'https://careers.google.com', 'campus@google.com'),
+(2, 'Microsoft', 'Software & Cloud', 'Hyderabad, India', 'https://microsoft.com', 'https://careers.microsoft.com', 'recruitment@microsoft.com'),
+(3, 'Amazon', 'E-Commerce & Cloud', 'Hyderabad, India', 'https://amazon.com', 'https://amazon.jobs', 'internships@amazon.com'),
+(4, 'Infosys', 'IT Services & Consulting', 'Bengaluru, India', 'https://infosys.com', 'https://infosys.com/careers', 'careers@infosys.com'),
+(5, 'Tata Consultancy Services (TCS)', 'IT & Enterprise Solutions', 'Hyderabad, India', 'https://tcs.com', 'https://tcs.com/careers', 'campus.hiring@tcs.com'),
+(6, 'Wipro', 'IT Consulting', 'Bengaluru, India', 'https://wipro.com', 'https://careers.wipro.com', 'careers@wipro.com');
+
+-- Verified Company-Role Pairings
+INSERT IGNORE INTO company_roles (company_id, role_id, vacancy_status, vacancy_source, information_source, last_verified) VALUES
+(1, 1, 'Potential Role Match', 'Company Competency Profile', 'https://careers.google.com', '2026-08-01'),
+(1, 3, 'Potential Role Match', 'Company Competency Profile', 'https://careers.google.com', '2026-08-01'),
+(1, 4, 'Potential Role Match', 'Company Competency Profile', 'https://careers.google.com', '2026-08-01'),
+(2, 2, 'Potential Role Match', 'Company Competency Profile', 'https://careers.microsoft.com', '2026-08-15'),
+(2, 4, 'Potential Role Match', 'Company Competency Profile', 'https://careers.microsoft.com', '2026-08-15'),
+(2, 1, 'Potential Role Match', 'Company Competency Profile', 'https://careers.microsoft.com', '2026-08-15'),
+(3, 4, 'Potential Role Match', 'Company Competency Profile', 'https://amazon.jobs', '2026-08-20'),
+(3, 1, 'Potential Role Match', 'Company Competency Profile', 'https://amazon.jobs', '2026-08-20'),
+(3, 3, 'Potential Role Match', 'Company Competency Profile', 'https://amazon.jobs', '2026-08-20'),
+(4, 1, 'Potential Role Match', 'Company Competency Profile', 'https://infosys.com/careers', '2026-08-01'),
+(4, 2, 'Potential Role Match', 'Company Competency Profile', 'https://infosys.com/careers', '2026-08-01'),
+(5, 1, 'Potential Role Match', 'Company Competency Profile', 'https://tcs.com/careers', '2026-08-10'),
+(5, 3, 'Potential Role Match', 'Company Competency Profile', 'https://tcs.com/careers', '2026-08-10'),
+(6, 2, 'Potential Role Match', 'Company Competency Profile', 'https://careers.wipro.com', '2026-08-12'),
+(6, 4, 'Potential Role Match', 'Company Competency Profile', 'https://careers.wipro.com', '2026-08-12');
 
 -- Sample Students (Team Profiles)
 INSERT IGNORE INTO students (student_id, roll_number, full_name, email, password, department, year_of_study, phone) VALUES
@@ -213,3 +319,31 @@ INSERT IGNORE INTO certifications (certification_id, student_id, certificate_nam
 -- Sample Academic Project
 INSERT IGNORE INTO projects (project_id, student_id, title, description, technologies_used, project_url) VALUES
 (1, 1, 'Smart Internship & Skill Tracker', 'Desktop application integrating Java Swing and MySQL DBMS for tracking applications and analyzing skill gaps.', 'Java, Swing, JDBC, MySQL', 'https://github.com/aadilahmedshaik/sinst');
+
+-- Seed Verified Catalog Mappings for Known Certifications
+INSERT IGNORE INTO certification_skills (certification_name, issuing_organization, skill_id, learning_outcome, evidence_source, suggested_proficiency, mapping_status) VALUES
+('Oracle Certified Associate: Java SE 17 Developer', 'Oracle', 1, 'Core Java, OOP principles, Collections, Multithreading, and Exception Handling', 'Oracle Exam 1Z0-829 Specification', 'Intermediate', 'Verified'),
+('Oracle Certified Associate: Java SE 17 Developer', 'Oracle', 15, 'Algorithm design, syntax precision, and analytical debugging under exam conditions', 'Oracle Exam 1Z0-829 Specification', 'Intermediate', 'Verified'),
+('Database Systems & SQL Specialist', 'HackerRank', 2, 'Relational queries, complex joins, subqueries, grouping, and schema normalization', 'HackerRank Skills Assessment', 'Intermediate', 'Verified'),
+('AWS Certified Cloud Practitioner', 'Amazon Web Services (AWS)', 5, 'Cloud architecture, RESTful API integrations, and cloud service endpoints', 'AWS Certified Exam Guide', 'Beginner', 'Verified'),
+('AWS Certified Cloud Practitioner', 'Amazon Web Services (AWS)', 12, 'Linux cloud instances, security groups, and cloud terminal operations', 'AWS Certified Exam Guide', 'Beginner', 'Verified'),
+('Meta Front-End Developer Professional Certificate', 'Meta', 7, 'Responsive UI design, CSS Flexbox/Grid, and HTML5 semantic web structures', 'Coursera / Meta Curriculum', 'Intermediate', 'Verified'),
+('Meta Front-End Developer Professional Certificate', 'Meta', 8, 'Modern ES6+ JavaScript, asynchronous operations, and DOM manipulation', 'Coursera / Meta Curriculum', 'Intermediate', 'Verified'),
+('Meta Front-End Developer Professional Certificate', 'Meta', 9, 'Component architecture, state management, and React hooks', 'Coursera / Meta Curriculum', 'Intermediate', 'Verified'),
+('Google Data Analytics Professional Certificate', 'Google', 2, 'SQL queries, database filtering, data aggregation, and structured data manipulation', 'Google Professional Certificate', 'Intermediate', 'Verified'),
+('Google Data Analytics Professional Certificate', 'Google', 10, 'Python programming, pandas, numpy, and statistical data exploration', 'Google Professional Certificate', 'Beginner', 'Verified'),
+('Google Data Analytics Professional Certificate', 'Google', 14, 'Interactive business intelligence dashboards and data storytelling', 'Google Professional Certificate', 'Intermediate', 'Verified'),
+('Docker Certified Associate', 'Docker', 13, 'Containerization, Dockerfile creation, image building, and container networking', 'Docker Certification Blueprint', 'Intermediate', 'Verified'),
+('Docker Certified Associate', 'Docker', 12, 'Linux container runtime, process management, and shell execution', 'Docker Certification Blueprint', 'Intermediate', 'Verified'),
+('Git & GitHub Version Control Certification', 'GitHub', 4, 'Branch management, merge conflict resolution, pull request workflows, and collaborative Git', 'GitHub Education Pathway', 'Intermediate', 'Verified');
+
+-- Sample Initial Student Certification Skills & Evidence for Aadil
+INSERT IGNORE INTO student_certification_skills (record_id, student_id, certification_id, skill_id, learning_outcome, review_status, assessed_proficiency) VALUES
+(1, 1, 1, 1, 'Core Java, OOP principles, Collections, Multithreading, and Exception Handling', 'Approved', 'Intermediate'),
+(2, 1, 2, 2, 'Relational queries, complex joins, subqueries, grouping, and schema normalization', 'Approved', 'Intermediate');
+
+INSERT IGNORE INTO skill_evidence (evidence_id, student_id, skill_id, evidence_type, reference_id, evidence_title, evidence_details, verification_status) VALUES
+(1, 1, 1, 'Certification', 1, 'Oracle Certified Associate: Java SE 17 Developer', 'Verified credential via Oracle Exam 1Z0-829. Covers core Java SE competency.', 'Verified'),
+(2, 1, 2, 'Certification', 2, 'Database Systems & SQL Specialist', 'HackerRank verified assessment in relational database design and advanced SQL queries.', 'Verified'),
+(3, 1, 1, 'Project', 1, 'Smart Internship & Skill Tracker', 'Demonstrated core Java, Swing, and JDBC architecture in desktop academic project.', 'Verified'),
+(4, 1, 2, 'Project', 1, 'Smart Internship & Skill Tracker', 'Implemented relational database schemas, migrations, and parameterized JDBC queries.', 'Verified');

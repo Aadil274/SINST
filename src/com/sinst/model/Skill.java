@@ -40,6 +40,20 @@ public class Skill {
     public void setProficiencyLevel(String proficiencyLevel) { this.proficiencyLevel = proficiencyLevel; }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Skill skill = (Skill) o;
+        if (skillId != 0 && skill.skillId != 0) return skillId == skill.skillId;
+        return skillName != null && skillName.equalsIgnoreCase(skill.skillName);
+    }
+
+    @Override
+    public int hashCode() {
+        return skillId != 0 ? Integer.hashCode(skillId) : (skillName != null ? skillName.toLowerCase().hashCode() : 0);
+    }
+
+    @Override
     public String toString() {
         return skillName;
     }
