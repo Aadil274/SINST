@@ -196,9 +196,9 @@ call mvnw.cmd exec:java
 
 ---
 
-## 🧪 Testing
+## 🧪 Automated Testing
 
-SINST includes an automated validation, domain contract, and concurrency test suite in `com.sinst.test.SinstTestSuite`.
+SINST includes a modern, comprehensive **JUnit 5 Jupiter** test suite covering unit validation, transparent mathematical ranking, and database integration tests under `test/`.
 
 ### Run Tests via Windows Script
 ```cmd
@@ -208,16 +208,21 @@ test.bat
 ### Run Tests via Maven
 ```bash
 mvn test
-# or using the wrapper:
+# or using the Maven wrapper:
 call mvnw.cmd test
 ```
 
 ### Test Suite Highlights
-- **Input Validation**: Strict RFC email syntax, student roll number format, names, chronological date bounds, and financial stipend parsing.
-- **Relational Domain Contracts**: Model equality, `hashCode()` contracts, and 4-tier skill-gap calculation logic.
-- **Authorization & IDOR Defense**: Ownership checks preventing cross-student manipulation of applications, interviews, certifications, and projects.
-- **Duplicate Prevention**: Rejection of duplicate submissions across database entities.
-- **Swing Responsiveness & Concurrency**: Event Dispatch Thread safety, background thread pool isolation, component disabling/re-enabling in `finally` blocks, and cancellation of superseded asynchronous tasks.
+- **Input Validation (`InputValidationTest`)**: Strict regex email syntax, student roll number bounds, names, year of study (1–4), phone numbers, chronological date/timestamp bounds, negative stipend detection, URL validation, and user-friendly error sanitization.
+- **Proficiency & Skill Gap (`ProficiencyAndSkillGapTest`)**: 4-tier domain scale (`None [0]` to `Expert [4]`), level gap calculations (`required - candidate`), fractional match values ($[0.0, 1.0]$), requirement status categorization, and weighted scoring formula via `SkillGapService`.
+- **Certification-to-Skill Mapping (`CertificationMappingTest`)**: 1:M cardinality between certifications and skills, learning outcomes, and unknown certification graceful handling.
+- **Evidence Review & Tracking (`EvidenceTrackingTest`)**: `SkillEvidence` model, verification statuses (`Verified`, `Unverified`, `Rejected`), and demonstrated proficiency preservation rule (never downgrade higher existing ability).
+- **Recommendation Ranking (`RecommendationRankingTest`)**: Weighted role match formula ($w_{mandatory} = 2.0, w_{optional} = 1.0$), configurable weights (`SkillMatchConfig`), 4-tier deterministic ranking (`compareTo`), truthful reporting (`Potential Role Match`, 0% for empty roles), and deduplication.
+- **Application Lifecycle (`ApplicationLifecycleTest`)**: Valid status transitions (`Applied`, `Under Review`, `Shortlisted`, `Interview`, `Accepted`, `Selected`, `Rejected`, `Withdrawn`), arbitrary status rejection, interview round bounds (1–20), interview modes, interview statuses, and chronological ordering.
+- **Service Authorization (`ServiceAuthorizationTest`)**: `UserSession` state tracking, IDOR cross-student manipulation defense (`UnauthorizedAccessException`), authorized owner access, administrative override, and duplicate entity exceptions (`DuplicateEntityException`).
+- **Swing Responsiveness & Concurrency (`ConcurrencyAndResponsivenessTest`)**: Event Dispatch Thread safety, background thread pool isolation, `onSuccess`/`onError` callback dispatch on the EDT, button disabling/re-enabling in `finally` blocks, and cancellation of superseded asynchronous tasks.
+- **DAO & Integration Tests (`DaoIntegrationTest`)**: Isolated test fixtures (`TEST_INTEG_001`), CRUD operations, foreign-key constraints, unique constraints, transaction rollback, duplicate prevention, student data ownership, and graceful offline fallback (`Assumptions.assumeTrue(...)`).
+- **Comprehensive Historical Regression (`ComprehensiveRegressionTest`)**: Full regression bridge asserting all 425 historical domain checks to ensure 100% backward compatibility.
 
 ---
 

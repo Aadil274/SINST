@@ -18,7 +18,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <main.class>com.sinst.Main</main.class>
-        <test.main.class>com.sinst.test.SinstTestSuite</test.main.class>
+        <junit.version>5.10.2</junit.version>
         <skipTests>false</skipTests>
     </properties>
 
@@ -36,10 +36,19 @@
             <artifactId>flatlaf</artifactId>
             <version>3.5.4</version>
         </dependency>
+
+        <!-- JUnit 5 Jupiter for Automated Testing -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
         <sourceDirectory>src</sourceDirectory>
+        <testSourceDirectory>test</testSourceDirectory>
         <resources>
             <resource>
                 <directory>src</directory>
@@ -58,6 +67,20 @@
                 <configuration>
                     <release>21</release>
                     <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+
+            <!-- Maven Surefire Plugin for JUnit 5 Execution -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <skipTests>${skipTests}</skipTests>
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*Tests.java</include>
+                    </includes>
                 </configuration>
             </plugin>
 
@@ -131,7 +154,7 @@
                 </executions>
             </plugin>
 
-            <!-- Application Execution & Test Suite Lifecycle -->
+            <!-- Application Execution via Maven -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
@@ -139,25 +162,6 @@
                 <configuration>
                     <mainClass>${main.class}</mainClass>
                 </configuration>
-                <executions>
-                    <!-- Run SINST Test Suite in forked JVM on 'mvn test' or 'mvn package' -->
-                    <execution>
-                        <id>run-test-suite</id>
-                        <phase>test</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <executable>java</executable>
-                            <arguments>
-                                <argument>-classpath</argument>
-                                <classpath/>
-                                <argument>${test.main.class}</argument>
-                            </arguments>
-                            <skip>${skipTests}</skip>
-                        </configuration>
-                    </execution>
-                </executions>
             </plugin>
         </plugins>
     </build>

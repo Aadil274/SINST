@@ -16,12 +16,12 @@ if %ERRORLEVEL% neq 0 (
 REM 2. Resolve Maven command
 set "MVN_CMD="
 
-where mvn >nul 2>nul
-if %ERRORLEVEL% equ 0 (
-    set "MVN_CMD=mvn"
+if exist "%~dp0mvnw.cmd" (
+    set "MVN_CMD=%~dp0mvnw.cmd"
 ) else (
-    if exist "%~dp0mvnw.cmd" (
-        set "MVN_CMD=%~dp0mvnw.cmd"
+    where mvn.cmd >nul 2>nul
+    if %ERRORLEVEL% equ 0 (
+        set "MVN_CMD=mvn.cmd"
     ) else (
         if defined MAVEN_HOME (
             if exist "%MAVEN_HOME%\bin\mvn.cmd" (
