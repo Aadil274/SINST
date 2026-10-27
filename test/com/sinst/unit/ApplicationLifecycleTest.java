@@ -1,6 +1,5 @@
 package com.sinst.unit;
 
-import com.sinst.exception.ValidationException;
 import com.sinst.model.Application;
 import com.sinst.model.Interview;
 import com.sinst.util.ValidationUtil;

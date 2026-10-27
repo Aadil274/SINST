@@ -84,32 +84,14 @@ public class SkillDAOImpl implements SkillDAO {
 
     @Override
     public boolean addOrUpdateStudentSkill(int studentId, int skillId, String proficiency, Connection conn) throws SQLException {
-        String checkSql = "SELECT COUNT(*) FROM student_skills WHERE student_id = ? AND skill_id = ?";
-        boolean exists = false;
-        try (PreparedStatement ps = conn.prepareStatement(checkSql)) {
+        String sql = "INSERT INTO student_skills (student_id, skill_id, proficiency_level) VALUES (?, ?, ?) " +
+                     "ON DUPLICATE KEY UPDATE proficiency_level = VALUES(proficiency_level)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, studentId);
             ps.setInt(2, skillId);
-            try (ResultSet rs = ps.executeQuery()) {
-                exists = rs.next() && rs.getInt(1) > 0;
-            }
-        }
-
-        if (exists) {
-            String sql = "UPDATE student_skills SET proficiency_level = ? WHERE student_id = ? AND skill_id = ?";
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setString(1, proficiency);
-                ps.setInt(2, studentId);
-                ps.setInt(3, skillId);
-                return ps.executeUpdate() > 0;
-            }
-        } else {
-            String sql = "INSERT INTO student_skills (student_id, skill_id, proficiency_level) VALUES (?, ?, ?)";
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setInt(1, studentId);
-                ps.setInt(2, skillId);
-                ps.setString(3, proficiency);
-                return ps.executeUpdate() > 0;
-            }
+            ps.setString(3, proficiency);
+            int rows = ps.executeUpdate();
+            return rows >= 0;
         }
     }
 

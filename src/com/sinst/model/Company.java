@@ -1,7 +1,5 @@
 package com.sinst.model;
 
-import java.util.Objects;
-
 public class Company {
     private int companyId;
     private String companyName;

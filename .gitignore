@@ -1,5 +1,6 @@
 # Maven build outputs
 target/
+bin/
 dependency-reduced-pom.xml
 
 # IDE and Editor files

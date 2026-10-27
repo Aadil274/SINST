@@ -134,6 +134,38 @@ public class ValidationUtil {
         }
     }
 
+    public static String formatDate(java.util.Date date) {
+        if (date == null) return "";
+        return new SimpleDateFormat("yyyy-MM-dd").format(date);
+    }
+
+    public static String formatDisplayDate(java.util.Date date) {
+        if (date == null) return "";
+        return new SimpleDateFormat("dd-MMM-yyyy").format(date);
+    }
+
+    public static String formatDisplayDateTime(java.util.Date date) {
+        if (date == null) return "";
+        return new SimpleDateFormat("dd-MMM-yyyy HH:mm").format(date);
+    }
+
+    public static String formatDateTime(java.util.Date date) {
+        if (date == null) return "";
+        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(date);
+    }
+
+    public static String currentDateString() {
+        return formatDate(new java.util.Date());
+    }
+
+    public static String futureDateString(long daysAhead) {
+        return formatDate(new java.util.Date(System.currentTimeMillis() + 86400000L * daysAhead));
+    }
+
+    public static String futureDateTimeString(long daysAhead) {
+        return formatDateTime(new java.util.Date(System.currentTimeMillis() + 86400000L * daysAhead));
+    }
+
     public static boolean hasNegativeStipend(String stipend) {
         if (stipend == null || stipend.trim().isEmpty()) return false;
         return NEGATIVE_NUMBER_PATTERN.matcher(stipend).find();

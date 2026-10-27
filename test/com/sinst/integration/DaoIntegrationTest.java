@@ -5,8 +5,6 @@ import com.sinst.model.*;
 import org.junit.jupiter.api.*;
 
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 

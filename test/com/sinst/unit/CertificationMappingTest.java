@@ -2,7 +2,6 @@ package com.sinst.unit;
 
 import com.sinst.model.Certification;
 import com.sinst.model.CertificationSkillMapping;
-import com.sinst.model.ProficiencyLevel;
 import com.sinst.model.StudentCertificationSkill;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

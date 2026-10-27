@@ -3,7 +3,6 @@ package com.sinst.model;
 import java.sql.Date;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 public class Role {
     private int roleId;

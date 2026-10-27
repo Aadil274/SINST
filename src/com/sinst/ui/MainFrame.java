@@ -19,7 +19,6 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.sql.Date;
 import java.sql.Timestamp;
-import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
@@ -1469,11 +1468,10 @@ public class MainFrame extends JFrame {
 
         // Upcoming Interviews
         upcomingInterviewsModel.setRowCount(0);
-        SimpleDateFormat sdf = new SimpleDateFormat("dd-MMM-yyyy HH:mm");
         if (upcoming != null) {
             for (Interview inv : upcoming) {
                 upcomingInterviewsModel.addRow(new Object[]{
-                    sdf.format(inv.getInterviewDate()),
+                    ValidationUtil.formatDisplayDateTime(inv.getInterviewDate()),
                     inv.getCompanyName(),
                     inv.getRoleTitle(),
                     inv.getRoundType(),
@@ -1509,7 +1507,6 @@ public class MainFrame extends JFrame {
         if (loadedApplications == null) return;
         String filter = (String) appFilterCombo.getSelectedItem();
         appsModel.setRowCount(0);
-        SimpleDateFormat sdf = new SimpleDateFormat("dd-MMM-yyyy");
 
         for (Application a : loadedApplications) {
             if ("All".equalsIgnoreCase(filter) || a.getStatus().equalsIgnoreCase(filter)) {
@@ -1517,8 +1514,8 @@ public class MainFrame extends JFrame {
                     a.getApplicationId(),
                     a.getCompanyName(),
                     a.getRoleTitle(),
-                    a.getApplicationDate() != null ? sdf.format(a.getApplicationDate()) : "",
-                    a.getDeadline() != null ? sdf.format(a.getDeadline()) : "N/A",
+                    ValidationUtil.formatDisplayDate(a.getApplicationDate()),
+                    a.getDeadline() != null ? ValidationUtil.formatDisplayDate(a.getDeadline()) : "N/A",
                     a.getStatus(),
                     a.getStipend() != null ? a.getStipend() : "-",
                     a.getNotes() != null ? a.getNotes() : ""
@@ -2053,7 +2050,7 @@ public class MainFrame extends JFrame {
         }
 
         JTextField stipendField = new JTextField("₹ 35,000 / mo");
-        JTextField deadlineField = new JTextField(new SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date(System.currentTimeMillis() + 86400000L * 30)));
+        JTextField deadlineField = new JTextField(ValidationUtil.futureDateString(30));
         JComboBox<String> statusCombo = new JComboBox<>(new String[]{"Applied", "Shortlisted", "Interview", "Selected"});
         JTextField notesField = new JTextField("Submitted via campus recruitment drive.");
 
@@ -2152,8 +2149,7 @@ public class MainFrame extends JFrame {
         JTextField roleField = new JTextField(target.getRoleTitle());
         roleField.setEditable(false);
 
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-        JTextField deadlineField = new JTextField(target.getDeadline() != null ? sdf.format(target.getDeadline()) : "");
+        JTextField deadlineField = new JTextField(target.getDeadline() != null ? ValidationUtil.formatDate(target.getDeadline()) : "");
         JComboBox<String> statusCombo = new JComboBox<>(new String[]{"Applied", "Shortlisted", "Interview", "Selected", "Rejected"});
         statusCombo.setSelectedItem(target.getStatus());
         JTextField stipendField = new JTextField(target.getStipend() != null ? target.getStipend() : "");
@@ -2278,7 +2274,7 @@ public class MainFrame extends JFrame {
         String role = (String) appsModel.getValueAt(row, 2);
 
         JPanel panel = new JPanel(new GridLayout(6, 2, 8, 8));
-        JTextField dateField = new JTextField(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date(System.currentTimeMillis() + 86400000L * 3)));
+        JTextField dateField = new JTextField(ValidationUtil.futureDateTimeString(3));
         JComboBox<String> roundCombo = new JComboBox<>(new String[]{"Technical Round 1", "Technical Round 2", "Online Assessment", "Managerial Round", "HR Round"});
         JComboBox<String> modeCombo = new JComboBox<>(new String[]{"Online", "In-Person"});
         JTextField feedbackField = new JTextField("Prepare system design & DSA questions.");
@@ -2348,7 +2344,6 @@ public class MainFrame extends JFrame {
         JTable t = new JTable(m);
         t.setRowHeight(26);
         t.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm");
 
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
         JButton updateOutcomeBtn = createStyledButton("Update Outcome / Status", new Color(24, 100, 180), Color.WHITE);
@@ -2367,7 +2362,7 @@ public class MainFrame extends JFrame {
                             i.getInterviewId(),
                             i.getCompanyName(),
                             i.getRoleTitle(),
-                            sdf.format(i.getInterviewDate()),
+                            ValidationUtil.formatDisplayDateTime(i.getInterviewDate()),
                             i.getRoundType(),
                             i.getMode(),
                             i.getStatus(),
@@ -2519,7 +2514,7 @@ public class MainFrame extends JFrame {
         JPanel panel = new JPanel(new GridLayout(4, 2, 8, 8));
         JTextField nameField = new JTextField();
         JTextField orgField = new JTextField("Oracle / AWS / HackerRank");
-        JTextField dateField = new JTextField(new SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date()));
+        JTextField dateField = new JTextField(ValidationUtil.currentDateString());
         JTextField credField = new JTextField();
 
         panel.add(new JLabel("Certification Name *:"));
@@ -2537,16 +2532,7 @@ public class MainFrame extends JFrame {
             String org = orgField.getText().trim();
             String dateStr = dateField.getText().trim();
 
-            if (!ValidationUtil.isNonEmpty(name)) {
-                JOptionPane.showMessageDialog(this, "Certification Name is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-            if (!ValidationUtil.isNonEmpty(org)) {
-                JOptionPane.showMessageDialog(this, "Issuing Organization is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-            if (!ValidationUtil.isValidDate(dateStr)) {
-                JOptionPane.showMessageDialog(this, "Please enter a valid issue date in YYYY-MM-DD format.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+            if (!validateCertInputs(name, org, dateStr)) {
                 return;
             }
 
@@ -2945,7 +2931,7 @@ public class MainFrame extends JFrame {
                     ev.getEvidenceTitle(),
                     ev.getEvidenceDetails(),
                     ev.getVerificationStatus(),
-                    ev.getCreatedAt() != null ? new SimpleDateFormat("yyyy-MM-dd").format(ev.getCreatedAt()) : "-"
+                    ev.getCreatedAt() != null ? ValidationUtil.formatDate(ev.getCreatedAt()) : "-"
                 });
             }
             JTable table = new JTable(model);
@@ -3005,8 +2991,7 @@ public class MainFrame extends JFrame {
         JPanel panel = new JPanel(new GridLayout(4, 2, 8, 8));
         JTextField nameField = new JTextField(currentCert.getCertificateName());
         JTextField orgField = new JTextField(currentCert.getIssuingOrganization());
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-        JTextField dateField = new JTextField(currentCert.getIssueDate() != null ? sdf.format(currentCert.getIssueDate()) : "");
+        JTextField dateField = new JTextField(currentCert.getIssueDate() != null ? ValidationUtil.formatDate(currentCert.getIssueDate()) : "");
         JTextField credField = new JTextField(currentCert.getCredentialId() != null ? currentCert.getCredentialId() : "");
 
         panel.add(new JLabel("Certification Name *:"));
@@ -3024,16 +3009,7 @@ public class MainFrame extends JFrame {
             String org = orgField.getText().trim();
             String dateStr = dateField.getText().trim();
 
-            if (!ValidationUtil.isNonEmpty(name)) {
-                JOptionPane.showMessageDialog(this, "Certification Name is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-            if (!ValidationUtil.isNonEmpty(org)) {
-                JOptionPane.showMessageDialog(this, "Issuing Organization is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-            if (!ValidationUtil.isValidDate(dateStr)) {
-                JOptionPane.showMessageDialog(this, "Please enter a valid issue date in YYYY-MM-DD format.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+            if (!validateCertInputs(name, org, dateStr)) {
                 return;
             }
 
@@ -3128,12 +3104,7 @@ public class MainFrame extends JFrame {
             String title = titleField.getText().trim();
             String tech = techField.getText().trim();
 
-            if (!ValidationUtil.isNonEmpty(title)) {
-                JOptionPane.showMessageDialog(this, "Project Title is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-            if (!ValidationUtil.isNonEmpty(tech)) {
-                JOptionPane.showMessageDialog(this, "Technologies Used is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+            if (!validateProjectInputs(title, tech)) {
                 return;
             }
 
@@ -3217,12 +3188,7 @@ public class MainFrame extends JFrame {
             String title = titleField.getText().trim();
             String tech = techField.getText().trim();
 
-            if (!ValidationUtil.isNonEmpty(title)) {
-                JOptionPane.showMessageDialog(this, "Project Title is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-            if (!ValidationUtil.isNonEmpty(tech)) {
-                JOptionPane.showMessageDialog(this, "Technologies Used is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+            if (!validateProjectInputs(title, tech)) {
                 return;
             }
 
@@ -3304,6 +3270,34 @@ public class MainFrame extends JFrame {
             this.suggestions = suggestions;
             this.allSkills = allSkills;
         }
+    }
+
+    private boolean validateCertInputs(String name, String org, String dateStr) {
+        if (!ValidationUtil.isNonEmpty(name)) {
+            JOptionPane.showMessageDialog(this, "Certification Name is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+            return false;
+        }
+        if (!ValidationUtil.isNonEmpty(org)) {
+            JOptionPane.showMessageDialog(this, "Issuing Organization is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+            return false;
+        }
+        if (!ValidationUtil.isValidDate(dateStr)) {
+            JOptionPane.showMessageDialog(this, "Please enter a valid issue date in YYYY-MM-DD format.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+            return false;
+        }
+        return true;
+    }
+
+    private boolean validateProjectInputs(String title, String tech) {
+        if (!ValidationUtil.isNonEmpty(title)) {
+            JOptionPane.showMessageDialog(this, "Project Title is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+            return false;
+        }
+        if (!ValidationUtil.isNonEmpty(tech)) {
+            JOptionPane.showMessageDialog(this, "Technologies Used is required.", "Validation Error", JOptionPane.WARNING_MESSAGE);
+            return false;
+        }
+        return true;
     }
 
     // =========================================================================

@@ -82,6 +82,7 @@ public class RecommendationServiceImpl implements RecommendationService {
 
             // Guard against duplicate recommendations for the same (companyId, roleId)
             Set<String> processedKeys = new HashSet<>();
+            Map<Integer, List<SkillGapResult>> roleGapCache = new HashMap<>();
 
             for (CompanyRole cr : companyRoles) {
                 if (cr == null) continue;
@@ -91,8 +92,14 @@ public class RecommendationServiceImpl implements RecommendationService {
                 }
                 processedKeys.add(key);
 
+                List<SkillGapResult> gapResults = roleGapCache.get(cr.getRoleId());
+                if (gapResults == null) {
+                    gapResults = skillGapService.analyzeSkillGap(studentId, cr.getRoleId());
+                    roleGapCache.put(cr.getRoleId(), gapResults);
+                }
+
                 RoleRecommendation rec = buildRecommendation(
-                    studentId, cr, activeConfig, appliedMap.get(key), verifiedEvidenceSkills
+                    studentId, cr, activeConfig, appliedMap.get(key), verifiedEvidenceSkills, gapResults
                 );
                 recommendations.add(rec);
             }
@@ -122,7 +129,8 @@ public class RecommendationServiceImpl implements RecommendationService {
             CompanyRole cr,
             SkillMatchConfig config,
             Application existingApp,
-            Set<Integer> verifiedEvidenceSkills) throws DatabaseException {
+            Set<Integer> verifiedEvidenceSkills,
+            List<SkillGapResult> gapResults) throws DatabaseException {
 
         RoleRecommendation rec = new RoleRecommendation();
         rec.setCompanyId(cr.getCompanyId());
@@ -150,7 +158,9 @@ public class RecommendationServiceImpl implements RecommendationService {
         }
 
         // Analyze skill gaps and evaluate proficiency
-        List<SkillGapResult> gapResults = skillGapService.analyzeSkillGap(studentId, cr.getRoleId());
+        if (gapResults == null) {
+            gapResults = skillGapService.analyzeSkillGap(studentId, cr.getRoleId());
+        }
 
         if (skillGapService.isInsufficientRoleData(gapResults)) {
             rec.setHasInsufficientRoleData(true);

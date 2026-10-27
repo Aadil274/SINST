@@ -45,20 +45,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         if (app.getCompanyId() <= 0 || app.getRoleId() <= 0) {
             throw new ValidationException("Please select both a target company and a role.");
         }
-        if (ValidationUtil.isNonEmpty(app.getStatus()) && !ValidationUtil.isValidApplicationStatus(app.getStatus())) {
-            throw new ValidationException("Invalid application status: " + app.getStatus());
-        }
-        if (app.getDeadline() != null) {
-            if (!ValidationUtil.isValidDate(app.getDeadline().toString())) {
-                throw new ValidationException("Please enter a valid deadline in YYYY-MM-DD format.");
-            }
-            if (app.getApplicationDate() != null && !ValidationUtil.isValidDateRange(app.getApplicationDate(), app.getDeadline())) {
-                throw new ValidationException("Application deadline (" + app.getDeadline() + ") cannot be before the application date (" + app.getApplicationDate() + ").");
-            }
-        }
-        if (ValidationUtil.hasNegativeStipend(app.getStipend())) {
-            throw new ValidationException("Stipend amount cannot be negative.");
-        }
+        validateApplicationDetails(app);
 
         try {
             if (applicationDAO.hasApplication(app.getStudentId(), app.getCompanyId(), app.getRoleId())) {
@@ -89,20 +76,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         if (app == null || app.getApplicationId() <= 0) {
             throw new ValidationException("Invalid application record for update.");
         }
-        if (ValidationUtil.isNonEmpty(app.getStatus()) && !ValidationUtil.isValidApplicationStatus(app.getStatus())) {
-            throw new ValidationException("Invalid application status: " + app.getStatus());
-        }
-        if (app.getDeadline() != null) {
-            if (!ValidationUtil.isValidDate(app.getDeadline().toString())) {
-                throw new ValidationException("Please enter a valid deadline in YYYY-MM-DD format.");
-            }
-            if (app.getApplicationDate() != null && !ValidationUtil.isValidDateRange(app.getApplicationDate(), app.getDeadline())) {
-                throw new ValidationException("Application deadline (" + app.getDeadline() + ") cannot be before the application date (" + app.getApplicationDate() + ").");
-            }
-        }
-        if (ValidationUtil.hasNegativeStipend(app.getStipend())) {
-            throw new ValidationException("Stipend amount cannot be negative.");
-        }
+        validateApplicationDetails(app);
 
         try {
             Application existing = applicationDAO.getById(app.getApplicationId());
@@ -178,6 +152,23 @@ public class ApplicationServiceImpl implements ApplicationService {
             }
         } catch (SQLException e) {
             throw new DatabaseException("Database error deleting application: " + ValidationUtil.sanitizeErrorMessage(e), e);
+        }
+    }
+
+    private void validateApplicationDetails(Application app) throws ValidationException {
+        if (ValidationUtil.isNonEmpty(app.getStatus()) && !ValidationUtil.isValidApplicationStatus(app.getStatus())) {
+            throw new ValidationException("Invalid application status: " + app.getStatus());
+        }
+        if (app.getDeadline() != null) {
+            if (!ValidationUtil.isValidDate(app.getDeadline().toString())) {
+                throw new ValidationException("Please enter a valid deadline in YYYY-MM-DD format.");
+            }
+            if (app.getApplicationDate() != null && !ValidationUtil.isValidDateRange(app.getApplicationDate(), app.getDeadline())) {
+                throw new ValidationException("Application deadline (" + app.getDeadline() + ") cannot be before the application date (" + app.getApplicationDate() + ").");
+            }
+        }
+        if (ValidationUtil.hasNegativeStipend(app.getStipend())) {
+            throw new ValidationException("Stipend amount cannot be negative.");
         }
     }
 }

@@ -39,21 +39,7 @@ public class ProjectServiceImpl implements ProjectService {
         if (project == null || project.getStudentId() <= 0) {
             throw new ValidationException("Invalid student identification for project.");
         }
-        if (!ValidationUtil.isNonEmpty(project.getTitle())) {
-            throw new ValidationException("Project Title is required.");
-        }
-        if (!ValidationUtil.isNonEmpty(project.getTechnologiesUsed())) {
-            throw new ValidationException("Technologies Used is required.");
-        }
-        if (ValidationUtil.isNonEmpty(project.getProjectUrl()) && !ValidationUtil.isValidUrl(project.getProjectUrl())) {
-            throw new ValidationException("Please enter a valid project repository URL (e.g. https://github.com/user/project).");
-        }
-        if (ValidationUtil.isNonEmpty(project.getGithubUrl()) && !ValidationUtil.isValidUrl(project.getGithubUrl())) {
-            throw new ValidationException("Please enter a valid GitHub repository URL (e.g. https://github.com/user/project).");
-        }
-        if (ValidationUtil.isNonEmpty(project.getLiveUrl()) && !ValidationUtil.isValidUrl(project.getLiveUrl())) {
-            throw new ValidationException("Please enter a valid live demo URL (e.g. https://project.demo.com).");
-        }
+        validateProjectDetails(project);
 
         try {
             if (projectDAO.hasProjectTitle(project.getStudentId(), project.getTitle())) {
@@ -84,21 +70,7 @@ public class ProjectServiceImpl implements ProjectService {
         if (project == null || project.getProjectId() <= 0) {
             throw new ValidationException("Invalid project ID for update.");
         }
-        if (!ValidationUtil.isNonEmpty(project.getTitle())) {
-            throw new ValidationException("Project Title is required.");
-        }
-        if (!ValidationUtil.isNonEmpty(project.getTechnologiesUsed())) {
-            throw new ValidationException("Technologies Used is required.");
-        }
-        if (ValidationUtil.isNonEmpty(project.getProjectUrl()) && !ValidationUtil.isValidUrl(project.getProjectUrl())) {
-            throw new ValidationException("Please enter a valid project repository URL.");
-        }
-        if (ValidationUtil.isNonEmpty(project.getGithubUrl()) && !ValidationUtil.isValidUrl(project.getGithubUrl())) {
-            throw new ValidationException("Please enter a valid GitHub URL.");
-        }
-        if (ValidationUtil.isNonEmpty(project.getLiveUrl()) && !ValidationUtil.isValidUrl(project.getLiveUrl())) {
-            throw new ValidationException("Please enter a valid live demo URL.");
-        }
+        validateProjectDetails(project);
 
         try {
             Project existing = projectDAO.getById(project.getProjectId());
@@ -142,6 +114,24 @@ public class ProjectServiceImpl implements ProjectService {
             }
         } catch (SQLException e) {
             throw new DatabaseException("Database error deleting project: " + ValidationUtil.sanitizeErrorMessage(e), e);
+        }
+    }
+
+    private void validateProjectDetails(Project project) throws ValidationException {
+        if (!ValidationUtil.isNonEmpty(project.getTitle())) {
+            throw new ValidationException("Project Title is required.");
+        }
+        if (!ValidationUtil.isNonEmpty(project.getTechnologiesUsed())) {
+            throw new ValidationException("Technologies Used is required.");
+        }
+        if (ValidationUtil.isNonEmpty(project.getProjectUrl()) && !ValidationUtil.isValidUrl(project.getProjectUrl())) {
+            throw new ValidationException("Please enter a valid project repository URL (e.g. https://github.com/user/project).");
+        }
+        if (ValidationUtil.isNonEmpty(project.getGithubUrl()) && !ValidationUtil.isValidUrl(project.getGithubUrl())) {
+            throw new ValidationException("Please enter a valid GitHub repository URL (e.g. https://github.com/user/project).");
+        }
+        if (ValidationUtil.isNonEmpty(project.getLiveUrl()) && !ValidationUtil.isValidUrl(project.getLiveUrl())) {
+            throw new ValidationException("Please enter a valid live demo URL (e.g. https://project.demo.com).");
         }
     }
 }

@@ -1,7 +1,6 @@
 package com.sinst.ui;
 
 import com.sinst.db.DBConnection;
-import com.sinst.exception.DatabaseException;
 import com.sinst.exception.DuplicateEntityException;
 import com.sinst.exception.EntityNotFoundException;
 import com.sinst.exception.ValidationException;
@@ -17,7 +16,6 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.sql.SQLException;
 
 public class LoginFrame extends JFrame {
 
